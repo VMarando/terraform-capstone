@@ -87,10 +87,11 @@ resource "aws_instance" "web_server" {
   availability_zone      = var.availability_zone
   source_dest_check      = false # 🛠 Disables source/destination check (useful for routing)
 
-  user_data = <<-EOF
+user_data = <<-EOF
 #!/bin/bash
 set -ex  # ✅ Debugging enabled to catch errors
 
+# Define log file
 LOGFILE="/var/log/user-data.log"
 exec > >(tee -a ${LOGFILE}) 2>&1  # ✅ Log everything to a file
 
