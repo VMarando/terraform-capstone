@@ -52,14 +52,17 @@ resource "aws_instance" "web_server" {
   key_name      = aws_key_pair.deployer.key_name
   vpc_security_group_ids = [aws_security_group.web_sg.id]
 
-  user_data = <<-EOF
+user_data = <<-EOF
             #!/bin/bash
             sudo apt update -y
-            sudo apt install -y nginx
+            sudo apt install -y nginx awscli ec2-instance-connect
 
             # Start and enable Nginx
             sudo systemctl start nginx
             sudo systemctl enable nginx
+
+            # Restart SSH for EC2 Instance Connect
+            sudo systemctl restart ssh
 
             # Allow firewall access
             sudo ufw allow 80/tcp
@@ -70,6 +73,7 @@ resource "aws_instance" "web_server" {
             <h1>Welcome to Nginx on Ubuntu 24.04!</h1>
             <p>Optimus Terraform Capstone - Our AWS First Web Server</p>
             EOF
+EOF
 
 
   tags = {
