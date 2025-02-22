@@ -66,8 +66,11 @@ resource "aws_instance" "web_server" {
             sudo ufw enable
 
             # Add a simple test homepage
-            echo -e "<h1>Welcome to Nginx on Ubuntu 24.04!</h1>\n<p>Optimus Terraform Capstone - Our First Web Server</p>" | sudo tee /var/www/html/index.html
+            cat <<EOF | sudo tee /var/www/html/index.html
+            <h1>Welcome to Nginx on Ubuntu 24.04!</h1>
+            <p>Optimus Terraform Capstone - Our AWS First Web Server</p>
             EOF
+
 
   tags = {
     Name = var.instance_name
