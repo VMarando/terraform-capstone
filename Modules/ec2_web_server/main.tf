@@ -1,8 +1,4 @@
-provider "aws" {
-  region = var.aws_region
-}
-
-# 🔑 Generate a New Key Pair (Downloads a .pem file)
+# 🔑 Generate a New Key Pair (Saves .pem file locally)
 resource "tls_private_key" "new_key" {
   algorithm = "RSA"
   rsa_bits  = 2048
@@ -77,10 +73,4 @@ resource "aws_instance" "web_server" {
   tags = {
     Name = var.instance_name
   }
-}
-
-# 🎯 Output Public IP for Easy Access
-output "instance_public_ip" {
-  description = "Public IP of the Tomcat server"
-  value       = aws_instance.web_server.public_ip
 }
