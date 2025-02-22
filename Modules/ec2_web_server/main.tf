@@ -146,7 +146,7 @@ sudo ufw --force enable
 
 # Add a simple test homepage
 cat <<HTML_EOF | sudo tee /var/www/html/index.html
-<h1>Welcome to Nginx on Ubuntu 24.04!</h1>
+<h1>Welcome to Nginx on Ubuntu 22.04!</h1>
 <p>Optimus Capstone - Terraform Deployed AWS Web Server</p>
 <p>Region: $(curl -s http://169.254.169.254/latest/meta-data/placement/region)</p>
 <p>Instance ID: $(curl -s http://169.254.169.254/latest/meta-data/instance-id)</p>
