@@ -93,7 +93,7 @@ set -ex  # ✅ Debugging enabled to catch errors
 
 # Define log file
 LOGFILE="/var/log/user-data.log"
-exec > >(tee -a ${LOGFILE}) 2>&1  # ✅ Log everything to a file
+exec > >(tee -a \${LOGFILE}) 2>&1  # ✅ Log everything to a file
 
 echo "📌 Starting instance setup at $(date)"
 
