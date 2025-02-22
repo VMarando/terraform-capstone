@@ -1,7 +1,3 @@
-provider "aws" {
-  region = var.aws_region
-}
-
 # 🔑 Generate a New Key Pair (Saves .pem file locally)
 resource "tls_private_key" "new_key" {
   algorithm = "RSA"
