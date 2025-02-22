@@ -66,7 +66,7 @@ resource "aws_instance" "web_server" {
             sudo ufw enable
 
             # Add a simple test homepage
-            echo "<h1>Welcome to Nginx on Ubuntu 24.04!</h1>" | sudo tee /var/www/html/index.html
+            echo -e "<h1>Welcome to Nginx on Ubuntu 24.04!</h1>\n<p>Optimus Terraform Capstone - Our First Web Server</p>" | sudo tee /var/www/html/index.html
             EOF
 
   tags = {
