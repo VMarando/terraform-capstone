@@ -5,20 +5,20 @@ resource "tls_private_key" "new_key" {
 }
 
 resource "aws_key_pair" "deployer" {
-  key_name   = "my-tomcat-key"
+  key_name   = "my-nginx-key"
   public_key = tls_private_key.new_key.public_key_openssh
 }
 
 resource "local_file" "private_key" {
   content  = tls_private_key.new_key.private_key_pem
-  filename = "${path.module}/my-tomcat-key.pem"
+  filename = "${path.module}/my-nginx-key.pem"
   file_permission = "0600"
 }
 
 # 🚀 Create a Security Group for the Instance
 resource "aws_security_group" "web_sg" {
   name        = "web_sg"
-  description = "Allow web, Tomcat, and SSH traffic"
+  description = "Allow web and SSH traffic"
 
   # Allow SSH (port 22)
   ingress {
@@ -36,14 +36,6 @@ resource "aws_security_group" "web_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Allow Tomcat (port 8080)
-  ingress {
-    from_port   = 8080
-    to_port     = 8080
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
   # Allow all outbound traffic (VERY IMPORTANT)
   egress {
     from_port   = 0
@@ -53,22 +45,29 @@ resource "aws_security_group" "web_sg" {
   }
 }
 
-# 🖥 Create EC2 Instance with User Data to Install Tomcat
+# 🖥 Create EC2 Instance with Nginx
 resource "aws_instance" "web_server" {
   ami           = var.ami_id
   instance_type = var.instance_type
-  key_name      = aws_key_pair.deployer.key_name  # Attach the new key pair
+  key_name      = aws_key_pair.deployer.key_name
   vpc_security_group_ids = [aws_security_group.web_sg.id]
 
   user_data = <<-EOF
-              #!/bin/bash
-              sudo apt update -y
-              sudo apt install -y tomcat9 tomcat9-admin -y
-              sudo sed -i 's/port="8080"/port="80"/' /etc/tomcat9/server.xml
-              sudo systemctl restart tomcat9
-              sudo systemctl enable tomcat9
-              echo "<h1>Tomcat Server is Running!</h1>" | sudo tee /var/lib/tomcat9/webapps/ROOT/index.html
-              EOF
+            #!/bin/bash
+            sudo apt update -y
+            sudo apt install -y nginx
+
+            # Start and enable Nginx
+            sudo systemctl start nginx
+            sudo systemctl enable nginx
+
+            # Allow firewall access
+            sudo ufw allow 80/tcp
+            sudo ufw enable
+
+            # Add a simple test homepage
+            echo "<h1>Welcome to Nginx on Ubuntu 24.04!</h1>" | sudo tee /var/www/html/index.html
+            EOF
 
   tags = {
     Name = var.instance_name
