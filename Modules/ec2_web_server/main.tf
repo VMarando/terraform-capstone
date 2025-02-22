@@ -87,13 +87,13 @@ resource "aws_instance" "web_server" {
   availability_zone      = var.availability_zone
   source_dest_check      = false # 🛠 Disables source/destination check (useful for routing)
 
-user_data = <<-EOF
+user_data = <<EOF
 #!/bin/bash
-set -ex  # ✅ Debugging enabled to catch errors
+set -ex  
 
 # Define log file
 LOGFILE="/var/log/user-data.log"
-exec > >(tee -a \${LOGFILE}) 2>&1  # ✅ Log everything to a file
+exec > >(tee -a ${LOGFILE}) 2>&1  
 
 echo "📌 Starting instance setup at $(date)"
 
@@ -114,7 +114,7 @@ sudo systemctl restart ssh
 sudo ufw allow 22/tcp
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
-sudo ufw --force enable  # ✅ Ensure UFW is active
+sudo ufw --force enable  
 
 # Add a simple test homepage
 cat <<HTML_EOF | sudo tee /var/www/html/index.html
@@ -127,6 +127,7 @@ HTML_EOF
 # ✅ Reboot to ensure changes take effect
 sudo reboot
 EOF
+
 
   tags = {
     Name        = var.instance_name
