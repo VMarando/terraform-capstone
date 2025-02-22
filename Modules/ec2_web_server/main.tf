@@ -18,9 +18,9 @@ resource "local_file" "private_key" {
 # 🚀 Create a Security Group for the Instance
 resource "aws_security_group" "web_sg" {
   name        = "web_sg"
-  description = "Allow web and SSH traffic"
+  description = "Allow web, SSH, and HTTPS traffic"
 
-  # Allow SSH (port 22)
+  # Allow SSH (port 22) for EC2 Instance Connect
   ingress {
     from_port   = 22
     to_port     = 22
@@ -36,7 +36,15 @@ resource "aws_security_group" "web_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Allow all outbound traffic (VERY IMPORTANT)
+  # Allow HTTPS (port 443)
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  # Allow all outbound traffic
   egress {
     from_port   = 0
     to_port     = 0
@@ -47,14 +55,21 @@ resource "aws_security_group" "web_sg" {
 
 # 🖥 Create EC2 Instance with Nginx
 resource "aws_instance" "web_server" {
-  ami           = var.ami_id
-  instance_type = var.instance_type
-  key_name      = aws_key_pair.deployer.key_name
+  ami                    = var.ami_id
+  instance_type          = var.instance_type
+  key_name               = aws_key_pair.deployer.key_name
   vpc_security_group_ids = [aws_security_group.web_sg.id]
 
-user_data = <<-EOF
+  associate_public_ip_address = true  # ✅ Ensures EC2 gets a Public IP
+
+  user_data = <<-EOF
 #!/bin/bash
+set -ex  # ✅ Debugging enabled to catch errors
+
+# Update system packages
 sudo apt update -y
+
+# Install Nginx, AWS CLI, and EC2 Instance Connect
 sudo apt install -y nginx awscli ec2-instance-connect
 
 # Start and enable Nginx
@@ -65,8 +80,10 @@ sudo systemctl enable nginx
 sudo systemctl restart ssh
 
 # Allow firewall access
+sudo ufw allow 22/tcp
 sudo ufw allow 80/tcp
-sudo ufw enable
+sudo ufw allow 443/tcp
+sudo ufw --force enable  # ✅ Ensure UFW is active
 
 # Add a simple test homepage
 cat <<HTML_EOF | sudo tee /var/www/html/index.html
@@ -74,9 +91,9 @@ cat <<HTML_EOF | sudo tee /var/www/html/index.html
 <p>Optimus Terraform Capstone - Our AWS First Web Server</p>
 HTML_EOF
 
+# ✅ Reboot to ensure changes take effect
+sudo reboot
 EOF
-
-
 
   tags = {
     Name = var.instance_name
