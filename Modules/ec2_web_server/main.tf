@@ -1,3 +1,7 @@
+provider "aws" {
+  region = var.aws_region
+}
+
 # 🔑 Generate a New Key Pair (Saves .pem file locally)
 resource "tls_private_key" "new_key" {
   algorithm = "RSA"
@@ -10,15 +14,38 @@ resource "aws_key_pair" "deployer" {
 }
 
 resource "local_file" "private_key" {
-  content  = tls_private_key.new_key.private_key_pem
-  filename = "${path.module}/my-nginx-key.pem"
+  content         = tls_private_key.new_key.private_key_pem
+  filename        = "${path.module}/my-nginx-key.pem"
   file_permission = "0600"
+  depends_on      = [aws_key_pair.deployer]
+}
+
+# 🌐 Create a VPC
+resource "aws_vpc" "main_vpc" {
+  cidr_block = "10.0.0.0/16"
+  
+  tags = {
+    Name = "Optimus-VPC"
+  }
+}
+
+# 📍 Create a Public Subnet
+resource "aws_subnet" "public_subnet" {
+  vpc_id            = aws_vpc.main_vpc.id
+  cidr_block        = "10.0.1.0/24"
+  map_public_ip_on_launch = true
+  availability_zone = var.availability_zone
+
+  tags = {
+    Name = "Public-Subnet"
+  }
 }
 
 # 🚀 Create a Security Group for the Instance
 resource "aws_security_group" "web_sg" {
   name        = "web_sg"
   description = "Allow web, SSH, and HTTPS traffic"
+  vpc_id      = aws_vpc.main_vpc.id
 
   # Allow SSH (port 22) for EC2 Instance Connect
   ingress {
@@ -59,12 +86,19 @@ resource "aws_instance" "web_server" {
   instance_type          = var.instance_type
   key_name               = aws_key_pair.deployer.key_name
   vpc_security_group_ids = [aws_security_group.web_sg.id]
-
+  subnet_id              = aws_subnet.public_subnet.id
   associate_public_ip_address = true  # ✅ Ensures EC2 gets a Public IP
+  availability_zone      = var.availability_zone
+  source_dest_check      = false # 🛠 Disables source/destination check (useful for routing)
 
   user_data = <<-EOF
 #!/bin/bash
 set -ex  # ✅ Debugging enabled to catch errors
+
+LOGFILE="/var/log/user-data.log"
+exec > >(tee -a ${LOGFILE}) 2>&1  # ✅ Log everything to a file
+
+echo "📌 Starting instance setup at $(date)"
 
 # Update system packages
 sudo apt update -y
@@ -88,7 +122,9 @@ sudo ufw --force enable  # ✅ Ensure UFW is active
 # Add a simple test homepage
 cat <<HTML_EOF | sudo tee /var/www/html/index.html
 <h1>Welcome to Nginx on Ubuntu 24.04!</h1>
-<p>Optimus Terraform Capstone - Our AWS First Web Server</p>
+<p>🚀 Terraform Deployed AWS Web Server</p>
+<p>🔹 Region: $(curl -s http://169.254.169.254/latest/meta-data/placement/region)</p>
+<p>🔹 Instance ID: $(curl -s http://169.254.169.254/latest/meta-data/instance-id)</p>
 HTML_EOF
 
 # ✅ Reboot to ensure changes take effect
@@ -96,6 +132,8 @@ sudo reboot
 EOF
 
   tags = {
-    Name = var.instance_name
+    Name        = var.instance_name
+    Environment = "Production"
+    DeployedBy  = "Terraform"
   }
 }
