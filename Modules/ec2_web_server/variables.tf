@@ -7,13 +7,13 @@ variable "aws_region" {
 variable "instance_type" {
   description = "Type of EC2 instance"
   type        = string
-  default     = "t2.micro"
+  default     = "t3.micro"
 }
 
 variable "ami_id" {
   description = "Amazon Machine Image (AMI) ID"
   type        = string
-  default     = "ami-00258761fd9151afd"
+  default     = "ami-04681163a08179f28"
 }
 
 variable "instance_name" {
