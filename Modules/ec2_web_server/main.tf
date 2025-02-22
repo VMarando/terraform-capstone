@@ -53,27 +53,29 @@ resource "aws_instance" "web_server" {
   vpc_security_group_ids = [aws_security_group.web_sg.id]
 
 user_data = <<-EOF
-            #!/bin/bash
-            sudo apt update -y
-            sudo apt install -y nginx awscli ec2-instance-connect
+#!/bin/bash
+sudo apt update -y
+sudo apt install -y nginx awscli ec2-instance-connect
 
-            # Start and enable Nginx
-            sudo systemctl start nginx
-            sudo systemctl enable nginx
+# Start and enable Nginx
+sudo systemctl start nginx
+sudo systemctl enable nginx
 
-            # Restart SSH for EC2 Instance Connect
-            sudo systemctl restart ssh
+# Restart SSH for EC2 Instance Connect
+sudo systemctl restart ssh
 
-            # Allow firewall access
-            sudo ufw allow 80/tcp
-            sudo ufw enable
+# Allow firewall access
+sudo ufw allow 80/tcp
+sudo ufw enable
 
-            # Add a simple test homepage
-            cat <<EOF | sudo tee /var/www/html/index.html
-            <h1>Welcome to Nginx on Ubuntu 24.04!</h1>
-            <p>Optimus Terraform Capstone - Our AWS First Web Server</p>
-            EOF
+# Add a simple test homepage
+cat <<HTML_EOF | sudo tee /var/www/html/index.html
+<h1>Welcome to Nginx on Ubuntu 24.04!</h1>
+<p>Optimus Terraform Capstone - Our AWS First Web Server</p>
+HTML_EOF
+
 EOF
+
 
 
   tags = {
