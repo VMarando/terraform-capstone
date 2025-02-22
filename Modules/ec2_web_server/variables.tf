@@ -11,9 +11,9 @@ variable "instance_type" {
 }
 
 variable "ami_id" {
-  description = "Amazon Machine Image (AMI) ID"
+  description = "Amazon Machine Image (AMI) ID for Ubuntu 24.04"
   type        = string
-  default     = "ami-04b4f1a9cf54c11d0"
+  default     = "ami-04b4f1a9cf54c11d0"  # Replace with latest AMI if needed
 }
 
 variable "instance_name" {
