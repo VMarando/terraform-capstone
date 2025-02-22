@@ -87,13 +87,13 @@ resource "aws_instance" "web_server" {
   availability_zone      = var.availability_zone
   source_dest_check      = false # 🛠 Disables source/destination check (useful for routing)
 
-user_data = <<EOF
+user_data = <<-EOF
 #!/bin/bash
 set -ex  
 
 # Define log file
 LOGFILE="/var/log/user-data.log"
-exec > >(tee -a ${LOGFILE}) 2>&1  
+exec > >(tee -a $LOGFILE) 2>&1  
 
 echo "📌 Starting instance setup at $(date)"
 
@@ -127,7 +127,6 @@ HTML_EOF
 # ✅ Reboot to ensure changes take effect
 sudo reboot
 EOF
-
 
   tags = {
     Name        = var.instance_name
