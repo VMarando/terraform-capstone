@@ -21,3 +21,9 @@ variable "instance_name" {
   type        = string
   default     = "Nginx-Test-Server"
 }
+
+variable "availability_zone" {
+  description = "The availability zone to launch resources in"
+  type        = string
+  default     = "us-east-1a"  # Replace with your preferred AZ
+}
