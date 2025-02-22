@@ -1,18 +1,3 @@
-# ✅ Define AWS Provider (Make sure the required provider is installed)
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 4.0"
-    }
-  }
-}
-
-# ✅ Configure AWS Provider
-provider "aws" {
-  region = var.aws_region  # Uses the AWS region specified in variables.tf
-}
-
 # 🔑 Generate a New SSH Key Pair (Saves .pem file locally)
 resource "tls_private_key" "new_key" {
   algorithm = "RSA"
@@ -176,10 +161,4 @@ EOF
     Environment = "Production"
     DeployedBy  = "Terraform"
   }
-}
-
-# 🔎 Output the Public IP of the Instance
-output "instance_public_ip" {
-  description = "Public IP of the Nginx web server"
-  value       = aws_instance.web_server.public_ip
 }
