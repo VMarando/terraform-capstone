@@ -6,3 +6,7 @@ module "video_portal" {
   bucket_name     = var.bucket_name
   web_sg_id       = var.web_sg_id
 }
+
+provider "aws" {
+  region = "us-east-1"  # Replace with your desired AWS region
+}
