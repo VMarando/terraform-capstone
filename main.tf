@@ -1,9 +1,8 @@
 module "video_portal" {
-  source = "./Modules/video_portal"  # Path to the video_portal module
-  
-  bucket_name    = var.bucket_name
-  key_name       = var.key_name
+  source          = "./Modules/video_portal"  # Adjust the path if necessary
+  vpc_id          = var.vpc_id
   public_subnet_id = var.public_subnet_id
-  vpc_id         = var.vpc_id
-  web_sg_id      = var.web_sg_id
+  key_name        = var.key_name
+  bucket_name     = var.bucket_name
+  web_sg_id       = var.web_sg_id
 }
