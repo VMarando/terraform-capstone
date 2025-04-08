@@ -43,8 +43,8 @@ resource "aws_instance" "web" {
 
             echo "<html><body><h1>Client Video Footage</h1>" > /usr/share/nginx/html/index.html
             echo "<ul>" >> /usr/share/nginx/html/index.html
-            echo "<li><a href='\\${BUCKET_URL}/video1.mp4'>video1.mp4</a></li>" >> /usr/share/nginx/html/index.html
-            echo "<li><a href='\\${BUCKET_URL}/video2.mp4'>video2.mp4</a></li>" >> /usr/share/nginx/html/index.html
+            echo "<li><a href='\\\${BUCKET_URL}/video1.mp4'>video1.mp4</a></li>" >> /usr/share/nginx/html/index.html
+            echo "<li><a href='\\\${BUCKET_URL}/video2.mp4'>video2.mp4</a></li>" >> /usr/share/nginx/html/index.html
             echo "</ul></body></html>" >> /usr/share/nginx/html/index.html
             EOF
 
