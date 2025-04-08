@@ -6,3 +6,7 @@ variable "bucket_name" {
   type        = string
 }
 
+variable "web_sg_id" {
+  description = "The ID of the web security group"
+  type        = string
+}

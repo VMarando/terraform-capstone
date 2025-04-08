@@ -1,20 +1,11 @@
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
-
-provider "aws" {
-  region = var.aws_region
-}
-
 module "video_portal" {
-  source           = "./Modules/video_portal"
-  vpc_id           = var.vpc_id
-  public_subnet_id = var.public_subnet_id
-  key_name         = var.key_name
-  bucket_name      = var.bucket_name
+  source = "./Modules/video_portal"
+  
+  key_name          = "your-key-name"
+  public_subnet_id  = "your-subnet-id"
+  bucket_name       = "your-bucket-name"
+}
+
+output "video_portal_url" {
+  value = "http://${module.video_portal.web.public_ip}"
 }
