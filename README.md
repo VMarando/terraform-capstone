@@ -14,14 +14,6 @@ The goal of this project is to automate the deployment of various AWS resources 
 - **Security Group Management**: Define and control access to deployed resources.
 - **Modular Infrastructure**: Reusable Terraform modules for EC2, S3, VPC, and more.
 
-## **Training IT Staff**
-
-In addition to automating cloud deployments, this project is designed to **train IT staff** on how to use **Terraform** to provision and manage AWS resources. IT staff will learn how to:
-
-- Automate and scale cloud deployments using **Terraform**.
-- Customize infrastructure based on business requirements.
-- Manage cloud resources securely and efficiently.
-
 ## **Conclusion**
 
 This project provides a practical solution for **automating cloud infrastructure management** using **Terraform**. It not only streamlines the deployment process but also equips **IT staff** with the skills and tools needed to manage and scale cloud resources effectively. Through modular configurations and training materials, the project empowers businesses to manage their cloud infrastructure more efficiently.
