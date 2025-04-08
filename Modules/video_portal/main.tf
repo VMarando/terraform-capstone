@@ -12,7 +12,7 @@ resource "aws_instance" "web" {
   systemctl enable nginx
   systemctl start nginx
 
-  BUCKET_URL="https://${var.bucket_name}.s3.amazonaws.com"
+  BUCKET_URL="https://\${var.bucket_name}.s3.amazonaws.com"
   # List of video files you want to display dynamically
   VIDEO_FILES=("video1.mp4" "video2.mp4" "video3.mp4" "video4.mp4")
 
