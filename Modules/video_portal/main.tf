@@ -31,22 +31,28 @@ resource "aws_instance" "web" {
   key_name      = var.key_name
   subnet_id     = var.public_subnet_id
   vpc_security_group_ids = [aws_security_group.web_sg.id]
+         
+          user_data = <<-EOF
+              #!/bin/bash
+              yum update -y
+              yum install -y nginx aws-cli
+              systemctl enable nginx
+              systemctl start nginx
 
-  user_data = <<-EOF
-            #!/bin/bash
-            yum update -y
-            yum install -y nginx aws-cli
-            systemctl enable nginx
-            systemctl start nginx
+              BUCKET_URL="https://${var.bucket_name}.s3.amazonaws.com"
+              # List of video files you want to display dynamically
+              VIDEO_FILES=("video1.mp4" "video2.mp4" "video3.mp4" "video4.mp4")
 
-            BUCKET_URL="https://${var.bucket_name}.s3.amazonaws.com"
+              echo "<html><body><h1>Client Video Footage</h1><ul>" > /usr/share/nginx/html/index.html
 
-            echo "<html><body><h1>Client Video Footage</h1>" > /usr/share/nginx/html/index.html
-            echo "<ul>" >> /usr/share/nginx/html/index.html
-            echo "<li><a href='\\\${BUCKET_URL}/video1.mp4'>video1.mp4</a></li>" >> /usr/share/nginx/html/index.html
-            echo "<li><a href='\\\${BUCKET_URL}/video2.mp4'>video2.mp4</a></li>" >> /usr/share/nginx/html/index.html
-            echo "</ul></body></html>" >> /usr/share/nginx/html/index.html
-            EOF
+              # Loop through the array of videos and generate the <li> tags
+              for video in "${VIDEO_FILES[@]}"
+              do
+                  echo "<li><a href='${BUCKET_URL}/$video'>$video</a></li>" >> /usr/share/nginx/html/index.html
+              done
+
+              echo "</ul></body></html>" >> /usr/share/nginx/html/index.html
+              EOF
 
   tags = {
     Name = "VideoWebServer"
