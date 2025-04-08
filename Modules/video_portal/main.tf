@@ -36,3 +36,4 @@ resource "aws_instance" "web" {
     Name = "VideoWebServer"
   }
 }
+
