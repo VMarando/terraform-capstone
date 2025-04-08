@@ -1,5 +1,5 @@
 module "video_portal" {
-  source          = "./Modules/video_portal"  # Adjust the path if necessary
+  source          = "./Modules/video_portal"
   vpc_id          = var.vpc_id
   public_subnet_id = var.public_subnet_id
   key_name        = var.key_name
