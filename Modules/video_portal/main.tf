@@ -35,7 +35,7 @@ resource "aws_instance" "web" {
   user_data = <<-EOF
     #!/bin/bash
     yum update -y
-    yum install -y nginx aws-cli
+    sudo amazon-linux-extras install nginx1 -y
     systemctl enable nginx
     systemctl start nginx
 
