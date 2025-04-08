@@ -40,17 +40,17 @@ resource "aws_instance" "web" {
     systemctl start nginx
 
     # Use double dollar signs to escape Terraform interpolation
-    BUCKET_URL="https://\${var.bucket_name}.s3.amazonaws.com"
+    BUCKET_URL="https://$${var.bucket_name}.s3.amazonaws.com"
     VIDEO_FILES=("video1.mp4" "video2.mp4" "video3.mp4" "video4.mp4")
 
     echo "<html><body><h1>Client Video Footage</h1><ul>" > /usr/share/nginx/html/index.html
 
-    if [ \${#VIDEO_FILES[@]} -eq 0 ]; then
+    if [ $${#VIDEO_FILES[@]} -eq 0 ]; then
       echo "<p>No videos available at this time.</p>" >> /usr/share/nginx/html/index.html
     else
-      for video in "\${VIDEO_FILES[@]}"
+      for video in "$${VIDEO_FILES[@]}"
       do
-        echo "<li><a href='\${BUCKET_URL}/$video'>$video</a></li>" >> /usr/share/nginx/html/index.html
+        echo "<li><a href='$${BUCKET_URL}/$video'>$video</a></li>" >> /usr/share/nginx/html/index.html
       done
     fi
 
