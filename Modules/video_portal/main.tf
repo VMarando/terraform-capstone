@@ -35,6 +35,7 @@ resource "local_file" "private_key" {
 
 resource "aws_vpc" "main_vpc" {
   cidr_block = "10.0.0.0/16"
+
   tags = {
     Name = "Optimus-VPC-${random_id.common_id.hex}"
   }
@@ -42,6 +43,7 @@ resource "aws_vpc" "main_vpc" {
 
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main_vpc.id
+
   tags = {
     Name = "Main-IGW-${random_id.common_id.hex}"
   }
@@ -52,6 +54,7 @@ resource "aws_subnet" "public_subnet" {
   cidr_block              = "10.0.1.0/24"
   map_public_ip_on_launch = true
   availability_zone       = var.availability_zone
+
   tags = {
     Name = "Public-Subnet-${random_id.common_id.hex}"
   }
@@ -116,6 +119,7 @@ resource "aws_security_group" "web_sg" {
 
 resource "aws_s3_bucket" "video_bucket" {
   bucket = "video-bucket-${random_id.common_id.hex}"
+
   tags = {
     Name = "Video Bucket-${random_id.common_id.hex}"
   }
@@ -127,35 +131,41 @@ resource "aws_s3_bucket" "video_bucket" {
 
 resource "aws_iam_role" "ec2_role" {
   name = "ec2_video_role-${random_id.common_id.hex}"
+
   assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Action    = "sts:AssumeRole",
-      Effect    = "Allow",
-      Principal = {
-        Service = "ec2.amazonaws.com"
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action    = "sts:AssumeRole"
+        Effect    = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
       }
-    }]
+    ]
   })
 }
 
 resource "aws_iam_role_policy" "ec2_s3_policy" {
   name = "ec2_s3_policy-${random_id.common_id.hex}"
   role = aws_iam_role.ec2_role.id
+
   policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Sid    = "AllowS3ListAndGet",
-      Effect = "Allow",
-      Action = [
-        "s3:ListBucket",
-        "s3:GetObject"
-      ],
-      Resource = [
-        aws_s3_bucket.video_bucket.arn,
-        "${aws_s3_bucket.video_bucket.arn}/*"
-      ]
-    }]
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowS3ListAndGet"
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetObject"
+        ]
+        Resource = [
+          aws_s3_bucket.video_bucket.arn,
+          "${aws_s3_bucket.video_bucket.arn}/*"
+        ]
+      }
+    ]
   })
 }
 
@@ -177,22 +187,23 @@ resource "aws_instance" "web_server" {
   associate_public_ip_address = true
   iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
 
-  # Make sure S3 bucket & IAM profile exist before the instance is created
+  # Ensure S3 bucket & IAM profile exist before instance creation
   depends_on = [
     aws_s3_bucket.video_bucket,
     aws_iam_instance_profile.ec2_profile
   ]
 
+  # Note the use of $$ for shell variables to avoid Terraform interpolation
   user_data = <<EOF
 #!/bin/bash
 set -ex
 
 LOGFILE="/var/log/user-data.log"
-exec > >(tee -a $$LOGFILE) 2>&1
+exec > >(tee -a $${LOGFILE}) 2>&1
 
-echo "Starting Nginx web server setup at $(date)"
+echo "Starting Nginx web server setup at $$(date)"
 
-# Install Nginx, AWS CLI, and EC2 Instance Connect (Ubuntu 22.04)
+# Install Nginx, AWS CLI, and EC2 Instance Connect
 sudo apt-get update -y
 sudo apt-get install -y nginx awscli ec2-instance-connect
 
@@ -209,37 +220,41 @@ sudo ufw --force enable
 cat <<SCRIPT_EOF > /tmp/update_index.sh
 #!/bin/bash
 set -e
+
+# Hard-coded from Terraform so TF can replace it with the final bucket name
 BUCKET_NAME="${aws_s3_bucket.video_bucket.bucket}"
 WEB_ROOT="/var/www/html"
 TMP_HTML="/tmp/index.html"
-EC2_REGION=\$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
+EC2_REGION=$$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
 
-echo "<html><body><h1>${var.client_name} - Video Library</h1><ul>" > \${TMP_HTML}
+echo "<html><body><h1>${var.client_name} - Video Library</h1><ul>" > $${TMP_HTML}
 
-# List files from the S3 bucket in the same region as the instance
-mapfile -t S3_FILES < <(aws s3 ls "s3://\${BUCKET_NAME}" --region "\${EC2_REGION}" --recursive | awk '{print \$4}')
+# List objects in S3, storing results in an array
+mapfile -t S3_FILES < <(aws s3 ls "s3://$${BUCKET_NAME}" --region "$${EC2_REGION}" --recursive | awk '{print $$4}')
 
-if [ \${#S3_FILES[@]} -eq 0 ]; then
-  echo "<p>No videos available at this time.</p>" >> \${TMP_HTML}
+if [ $${#S3_FILES[@]} -eq 0 ]; then
+  echo "<p>No videos available at this time.</p>" >> $${TMP_HTML}
 else
-  for object in "\${S3_FILES[@]}"; do
-    if [ -n "\${object}" ]; then
-      echo "<li><a href='https://\${BUCKET_NAME}.s3.amazonaws.com/\${object}'>\${object}</a></li>" >> \${TMP_HTML}
+  for object in "$${S3_FILES[@]}"; do
+    if [ -n "$${object}" ]; then
+      echo "<li><a href='https://$${BUCKET_NAME}.s3.amazonaws.com/$${object}'>$${object}</a></li>" >> $${TMP_HTML}
     fi
   done
 fi
-echo "</ul></body></html>" >> \${TMP_HTML}
-sudo mv \${TMP_HTML} \${WEB_ROOT}/index.html
+
+echo "</ul></body></html>" >> $${TMP_HTML}
+sudo mv $${TMP_HTML} $${WEB_ROOT}/index.html
 SCRIPT_EOF
 
 chmod +x /tmp/update_index.sh
+
 # Run the update script immediately
 /tmp/update_index.sh
 
 # Schedule the update script to run every 5 minutes via cron
 echo "*/5 * * * * /tmp/update_index.sh >> /var/log/update_index_cron.log 2>&1" | sudo tee -a /etc/crontab
 
-# Optionally reboot to ensure everything is fully applied
+# Optional reboot for final consistency
 sudo reboot
 EOF
 
@@ -262,9 +277,6 @@ resource "aws_instance" "ftp_s3_sync_server" {
   subnet_id              = aws_subnet.public_subnet.id
   associate_public_ip_address = true
 
-  # Doesn't strictly need the IAM role for listing, but if you want it to have S3 perms:
-  # iam_instance_profile = aws_iam_instance_profile.ec2_profile.name
-
   user_data = <<EOF
 #!/bin/bash
 set -ex
@@ -277,26 +289,29 @@ mkdir -p /tmp/video_files
 # Create the FTP-to-S3 sync script
 cat <<SCRIPT_EOF > /tmp/ftp_to_s3_sync.sh
 #!/bin/bash
+set -e
+
 # *** Update these FTP values with your actual FTP server details ***
 FTP_HOST="ftp.example.com"
 FTP_USER="your_ftp_user"
 FTP_PASS="your_ftp_password"
 LOCAL_DIR="/tmp/video_files"
 S3_BUCKET="s3://${aws_s3_bucket.video_bucket.bucket}"
-EC2_REGION=\$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
+EC2_REGION=$$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
 
-ftp -n \$FTP_HOST <<END_SCRIPT
-quote USER \$FTP_USER
-quote PASS \$FTP_PASS
-mget /path/to/videos/* \$LOCAL_DIR/
+ftp -n $${FTP_HOST} <<END_SCRIPT
+quote USER $${FTP_USER}
+quote PASS $${FTP_PASS}
+mget /path/to/videos/* $${LOCAL_DIR}/
 quit
 END_SCRIPT
 
-aws s3 sync \$LOCAL_DIR \$S3_BUCKET --acl public-read --region \$EC2_REGION
-rm -rf \$LOCAL_DIR
+aws s3 sync $${LOCAL_DIR} $${S3_BUCKET} --acl public-read --region $${EC2_REGION}
+rm -rf $${LOCAL_DIR}
 SCRIPT_EOF
 
 chmod +x /tmp/ftp_to_s3_sync.sh
+
 # Set up a cron job to run the FTP sync script every 5 minutes
 echo "*/5 * * * * /tmp/ftp_to_s3_sync.sh >> /var/log/ftp_to_s3_sync.log 2>&1" | sudo tee -a /etc/crontab
 sudo service cron restart
