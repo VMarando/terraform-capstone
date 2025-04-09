@@ -206,7 +206,7 @@ WEB_ROOT="/var/www/html"
 TMP_HTML="/tmp/index.html"
 
 echo "<html><body><h1>${var.client_name} - Video Library</h1><ul>" > $$TMP_HTML
-mapfile -t S3_FILES < <(aws s3 ls "s3://$$BUCKET_NAME" --recursive | awk '{print \$4}')
+mapfile -t S3_FILES < <(aws s3 ls "s3://$$BUCKET_NAME" --recursive | awk '{print $$4}')
 if [ $${#S3_FILES[@]} -eq 0 ]; then
   echo "<p>No videos available at this time.</p>" >> $$TMP_HTML
 else
@@ -251,7 +251,26 @@ resource "aws_instance" "ftp_s3_sync_server" {
 set -ex
 
 sudo apt-get update -y
-sudo apt-get install -y awscli ftp cron
+sudo apt-get install -y awscli ftp cron nginx
+
+# Configure Nginx with a custom homepage
+cat <<NGINX_INDEX > /var/www/html/index.html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FTP-to-S3 Sync Server</title>
+</head>
+<body>
+    <h1>FTP-to-S3 Sync Server</h1>
+    <p>This server automatically syncs files from an FTP server to Amazon S3.</p>
+    <p>Last updated: $(date)</p>
+</body>
+</html>
+NGINX_INDEX
+
+# Ensure Nginx is running and enabled at boot
+sudo systemctl enable nginx
+sudo systemctl start nginx
 
 mkdir -p /tmp/video_files
 
