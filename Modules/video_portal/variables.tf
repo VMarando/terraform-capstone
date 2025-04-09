@@ -3,8 +3,9 @@
 ##############################################
 
 variable "ami_id" {
-  description = "AMI to use for the EC2 instances."
+  description = "Amazon Machine Image (AMI) ID for Ubuntu 22.04"
   type        = string
+  default     = "ami-0e1bed4f06a3b463d"  # Ubuntu 22.04 LTS AMI for us-east-1
 }
 
 variable "instance_type" {
@@ -22,7 +23,9 @@ variable "instance_name" {
 variable "availability_zone" {
   description = "The availability zone for the subnet."
   type        = string
+    default     = "us-east-1a" 
 }
+
 
 variable "bucket_name" {
   description = "The name of the S3 bucket (if used externally)."
