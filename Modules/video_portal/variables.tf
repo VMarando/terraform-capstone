@@ -1,24 +1,30 @@
-variable "vpc_id" {
-  description = "The ID of the VPC"
+variable "aws_region" {
+  description = "AWS region for deployment"
   type        = string
+  default     = "us-east-1"
 }
 
-variable "public_subnet_id" {
-  description = "The ID of the public subnet"
+variable "instance_type" {
+  description = "Type of EC2 instance"
   type        = string
+  default     = "t3.micro"
 }
 
-variable "key_name" {
-  description = "The name of the SSH key"
+variable "ami_id" {
+  description = "Amazon Machine Image (AMI) ID for Ubuntu 22.04"
   type        = string
+  default     = "ami-0e1bed4f06a3b463d"  # Ubuntu 22.04 LTS AMI for us-east-1
 }
 
-variable "bucket_name" {
-  description = "The name of the S3 bucket"
+
+variable "instance_name" {
+  description = "EC2 instance name tag"
   type        = string
+  default     = "Nginx-Test-Server"
 }
 
-variable "web_sg_id" {
-  description = "The ID of the web security group"
+variable "availability_zone" {
+  description = "The availability zone to launch resources in"
   type        = string
+  default     = "us-east-1a"  # Replace with your preferred AZ
 }

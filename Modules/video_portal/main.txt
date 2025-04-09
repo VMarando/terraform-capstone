@@ -1,0 +1,93 @@
+# 🔑 Generate a New SSH Key Pair (Saves .pem file locally)
+resource "tls_private_key" "new_key" {
+  algorithm = "RSA"
+  rsa_bits  = 2048
+}
+
+resource "aws_key_pair" "deployer" {
+  key_name   = "my-nginx-key"
+  public_key = tls_private_key.new_key.public_key_openssh
+}
+
+resource "local_file" "private_key" {
+  content         = tls_private_key.new_key.private_key_pem
+  filename        = "${path.module}/my-nginx-key.pem"
+  file_permission = "0600"
+  depends_on      = [aws_key_pair.deployer]
+}
+
+# 🌐 Create an S3 Bucket for video storage
+resource "aws_s3_bucket" "video_bucket" {
+  bucket = var.bucket_name
+}
+
+# 📤 Upload video files to the S3 bucket
+resource "aws_s3_object" "video_files" {
+  count   = length(var.video_files)
+  bucket  = aws_s3_bucket.video_bucket.bucket
+  key     = element(var.video_files, count.index)
+  source  = "path_to_video_files/${element(var.video_files, count.index)}"
+  acl     = "public-read"
+}
+
+# 🖥️ Create NGINX Web Server EC2 Instance
+resource "aws_instance" "nginx_server" {
+  ami           = "ami-0c55b159cbfafe1f0"  # Replace with your desired AMI (Ubuntu or another OS with NGINX)
+  instance_type = "t2.micro"
+  key_name      = aws_key_pair.deployer.key_name
+
+  tags = {
+    Name = "Nginx Server"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "sudo apt-get update",
+      "sudo apt-get install -y nginx",
+      "sudo systemctl start nginx",
+      "sudo systemctl enable nginx",
+      "sudo mkdir -p /usr/share/nginx/html",
+      "sudo touch /usr/share/nginx/html/index.html"
+    ]
+  }
+}
+
+# 📜 Define variables for bucket name and video files
+variable "bucket_name" {
+  description = "The name of the S3 bucket"
+  type        = string
+}
+
+variable "video_files" {
+  description = "List of video file names to upload"
+  type        = list(string)
+  default     = ["video1.mp4", "video2.mp4", "video3.mp4", "video4.mp4"]
+}
+
+# 📄 Bash script to create the HTML file
+resource "null_resource" "generate_html" {
+  provisioner "local-exec" {
+    command = <<-EOF
+      BUCKET_URL="https://$${aws_s3_bucket.video_bucket.bucket}.s3.amazonaws.com"
+      VIDEO_FILES=(${join(" ", var.video_files)})
+
+      echo "<html><body><h1>Client Video Footage</h1><ul>" > /usr/share/nginx/html/index.html
+
+      if [ $${#VIDEO_FILES[@]} -eq 0 ]; then
+        echo "<p>No videos available at this time.</p>" >> /usr/share/nginx/html/index.html
+      else
+        for video in "$${VIDEO_FILES[@]}"
+        do
+          echo "<li><a href='$${BUCKET_URL}/$video'>$video</a></li>" >> /usr/share/nginx/html/index.html
+        done
+      fi
+
+      echo "</ul></body></html>" >> /usr/share/nginx/html/index.html
+    EOF
+  }
+}
+
+# Output the public IP of the NGINX instance for easy access
+output "nginx_public_ip" {
+  value = aws_instance.nginx_server.public_ip
+}

@@ -123,7 +123,7 @@ set -ex
 LOGFILE="/var/log/user-data.log"
 exec > >(tee -a $LOGFILE) 2>&1  
 
-echo "📌 Starting instance setup at $(date)"
+echo "Starting instance setup at $(date)"
 
 # Update system packages
 sudo apt update -y
