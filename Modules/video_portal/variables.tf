@@ -41,3 +41,9 @@ variable "video_files" {
   type        = list(string)
   default     = ["video1.mp4", "video2.mp4", "video3.mp4", "video4.mp4"]
 }
+
+variable "client_name" {
+  description = "A header line for the web server's HTML page"
+  type        = string
+  default     = "Insert Client Name Here"
+}

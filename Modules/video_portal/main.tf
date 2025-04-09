@@ -14,33 +14,6 @@ resource "random_id" "common_id" {
 }
 
 ########################################################
-# Variables for AMI, instance type, client name, etc.
-########################################################
-
-variable "ami_id" {
-  description = "The AMI to use for the EC2 instances"
-  type        = string
-}
-
-variable "instance_type" {
-  description = "EC2 instance type, e.g. t2.micro"
-  type        = string
-  default     = "t2.micro"
-}
-
-variable "availability_zone" {
-  description = "Which availability zone to deploy in, e.g. us-east-1a"
-  type        = string
-  default     = "us-east-1a"
-}
-
-variable "client_name" {
-  description = "A header line for the web server's HTML page"
-  type        = string
-  default     = "Insert Client Name Here"
-}
-
-########################################################
 # AWS Key Pair & Local Private Key
 ########################################################
 
@@ -282,18 +255,4 @@ EOF
     Environment = "Production"
     DeployedBy  = "Terraform"
   }
-}
-
-##############################################
-# Outputs
-##############################################
-
-output "nginx_public_ip" {
-  description = "Public IP of the Nginx web server"
-  value       = aws_instance.web_server.public_ip
-}
-
-output "ftp_s3_sync_server_public_ip" {
-  description = "Public IP of the FTP-to-S3 sync server"
-  value       = aws_instance.ftp_s3_sync_server.public_ip
 }
