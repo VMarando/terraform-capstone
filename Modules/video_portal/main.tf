@@ -122,42 +122,42 @@ resource "aws_security_group" "web_sg" {
 
 # 🖥 Deploy EC2 Instance with Nginx (Web Server)
 resource "aws_instance" "web_server" {
-ami                    = var.ami_id
-instance_type          = var.instance_type
-key_name               = aws_key_pair.deployer.key_name
-vpc_security_group_ids = [aws_security_group.web_sg.id]
-subnet_id              = aws_subnet.public_subnet.id
-associate_public_ip_address = true
+  ami                    = var.ami_id
+  instance_type          = var.instance_type
+  key_name               = aws_key_pair.deployer.key_name
+  vpc_security_group_ids = [aws_security_group.web_sg.id]
+  subnet_id              = aws_subnet.public_subnet.id
+  associate_public_ip_address = true
 
   user_data = <<-EOF
-#!/bin/bash
-set -ex
+    #!/bin/bash
+    set -ex
 
-LOGFILE="/var/log/user-data.log"
-exec > >(tee -a $LOGFILE) 2>&1
+    LOGFILE="/var/log/user-data.log"
+    exec > >(tee -a $$LOGFILE) 2>&1
 
-echo "Starting Nginx web server setup at $(date)"
+    echo "Starting Nginx web server setup at $(date)"
 
-# 1. Install software
-sudo apt update -y
-sudo apt install -y nginx awscli ec2-instance-connect
+    # 1. Install software
+    sudo apt update -y
+    sudo apt install -y nginx awscli ec2-instance-connect
 
-sudo systemctl start nginx
-sudo systemctl enable nginx
-sudo systemctl restart ssh
+    sudo systemctl start nginx
+    sudo systemctl enable nginx
+    sudo systemctl restart ssh
 
-sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw --force enable
+    sudo ufw allow 22/tcp
+    sudo ufw allow 80/tcp
+    sudo ufw allow 443/tcp
+    sudo ufw --force enable
 
-# 2. Create a script to update /var/www/html/index.html with files from S3
-cat <<'SCRIPT_EOF' > /tmp/update_index.sh
+    # 2. Create a script to update /var/www/html/index.html with files from S3
+    cat <<'SCRIPT_EOF' > /tmp/update_index.sh
 #!/bin/bash
 set -e
 
 # Name of the S3 bucket (substitute if you store it differently)
-BUCKET_NAME="${aws_s3_bucket.video_bucket.bucket}"
+BUCKET_NAME="$${aws_s3_bucket.video_bucket.bucket}"
 
 # Directory where the final index.html will be placed
 WEB_ROOT="/var/www/html"
@@ -167,39 +167,39 @@ TMP_HTML="/tmp/index.html"
 
 # Retrieve the list of objects in the S3 bucket
 # Using 'awk' to parse out the 4th column, which is the object key
-mapfile -t S3_FILES < <(aws s3 ls "s3://${BUCKET_NAME}" --recursive | awk '{print $4}')
+mapfile -t S3_FILES < <(aws s3 ls "s3://$${BUCKET_NAME}" --recursive | awk '{print $4}')
 
 # Start building the HTML
-echo "<html><body><h1>Client Video Footage</h1><ul>" > $TMP_HTML
+echo "<html><body><h1>Client Video Footage</h1><ul>" > $$TMP_HTML
 
-if [ ${#S3_FILES[@]} -eq 0 ]; then
-  echo "<p>No videos available at this time.</p>" >> $TMP_HTML
+if [ $${#S3_FILES[@]} -eq 0 ]; then
+  echo "<p>No videos available at this time.</p>" >> $$TMP_HTML
 else
-  for object in "${S3_FILES[@]}"; do
+  for object in "$${S3_FILES[@]}"; do
     # Skip empty lines
-    if [ -n "$object" ]; then
-      echo "<li><a href='https://${BUCKET_NAME}.s3.amazonaws.com/$object'>$object</a></li>" >> $TMP_HTML
+    if [ -n "$$object" ]; then
+      echo "<li><a href='https://$${BUCKET_NAME}.s3.amazonaws.com/$$object'>$$object</a></li>" >> $$TMP_HTML
     fi
   done
 fi
 
-echo "</ul></body></html>" >> $TMP_HTML
+echo "</ul></body></html>" >> $$TMP_HTML
 
 # Move the file into place
-sudo mv $TMP_HTML $WEB_ROOT/index.html
+sudo mv $$TMP_HTML $$WEB_ROOT/index.html
 SCRIPT_EOF
 
-chmod +x /tmp/update_index.sh
+    chmod +x /tmp/update_index.sh
 
-# 3. Run update_index.sh now to generate the initial page
-/tmp/update_index.sh
+    # 3. Run update_index.sh now to generate the initial page
+    /tmp/update_index.sh
 
-# 4. Schedule the script to run every 5 minutes
-echo "*/5 * * * * /tmp/update_index.sh >> /var/log/update_index_cron.log 2>&1" | sudo tee -a /etc/crontab
+    # 4. Schedule the script to run every 5 minutes
+    echo "*/5 * * * * /tmp/update_index.sh >> /var/log/update_index_cron.log 2>&1" | sudo tee -a /etc/crontab
 
-# 5. Reboot (optional, to ensure everything is fresh)
-sudo reboot
-EOF
+    # 5. Reboot (optional, to ensure everything is fresh)
+    sudo reboot
+  EOF
 
   tags = {
     Name        = var.instance_name
@@ -217,7 +217,6 @@ resource "aws_instance" "ftp_s3_sync_server" {
   subnet_id              = aws_subnet.public_subnet.id
   associate_public_ip_address = true
 
-  # Installs AWS CLI, FTP client, cron; sets up the FTP-to-S3 sync script
   user_data = <<-EOF
     #!/bin/bash
     set -ex
@@ -231,33 +230,33 @@ resource "aws_instance" "ftp_s3_sync_server" {
 
     # Create the FTP-to-S3 sync script
     cat <<'EOL' > /tmp/ftp_to_s3_sync.sh
-    #!/bin/bash
+#!/bin/bash
 
-    # FTP Server Credentials - update these with your actual FTP details
-    FTP_HOST="ftp.example.com"
-    FTP_USER="your_ftp_user"
-    FTP_PASS="your_ftp_password"
+# FTP Server Credentials - update these with your actual FTP details
+FTP_HOST="ftp.example.com"
+FTP_USER="your_ftp_user"
+FTP_PASS="your_ftp_password"
 
-    # Local directory to store downloaded files
-    LOCAL_DIR="/tmp/video_files"
+# Local directory to store downloaded files
+LOCAL_DIR="/tmp/video_files"
 
-    # S3 bucket to upload files to
-    S3_BUCKET="s3://your-bucket-name/"
+# S3 bucket to upload files to
+S3_BUCKET="s3://your-bucket-name/"
 
-    # Download files from the FTP server
-    ftp -n $FTP_HOST <<END_SCRIPT
-    quote USER $FTP_USER
-    quote PASS $FTP_PASS
-    mget /path/to/videos/* $LOCAL_DIR/
-    quit
-    END_SCRIPT
+# Download files from the FTP server
+ftp -n $$FTP_HOST <<END_SCRIPT
+quote USER $$FTP_USER
+quote PASS $$FTP_PASS
+mget /path/to/videos/* $$LOCAL_DIR/
+quit
+END_SCRIPT
 
-    # Sync the local directory with S3
-    aws s3 sync $LOCAL_DIR $S3_BUCKET --acl public-read
+# Sync the local directory with S3
+aws s3 sync $$LOCAL_DIR $$S3_BUCKET --acl public-read
 
-    # Clean up local files after upload
-    rm -rf $LOCAL_DIR
-    EOL
+# Clean up local files after upload
+rm -rf $$LOCAL_DIR
+EOL
 
     # Make the sync script executable
     chmod +x /tmp/ftp_to_s3_sync.sh
@@ -265,7 +264,7 @@ resource "aws_instance" "ftp_s3_sync_server" {
     # Set up a cron job to run the sync script every 5 minutes
     echo "*/5 * * * * /tmp/ftp_to_s3_sync.sh >> /var/log/ftp_to_s3_sync.log 2>&1" | sudo tee -a /etc/crontab
 
-    # Restart cron
+    # Restart cron service
     sudo service cron restart
   EOF
 
@@ -276,28 +275,11 @@ resource "aws_instance" "ftp_s3_sync_server" {
   }
 }
 
-# 🌐 Create an S3 Bucket (Randomly Named)
+# 🌐 Create an S3 Bucket for video storage (Randomly Named)
 resource "aws_s3_bucket" "video_bucket" {
   bucket = "video-bucket-${random_id.bucket_id.hex}"
 
   tags = {
     Name = "Video Bucket"
-  }
-}
-
-# 📄 Generate a Placeholder HTML page on the web server
-#    (No local file upload resource is used, so we won't fail if no local videos exist)
-resource "null_resource" "generate_html" {
-  provisioner "local-exec" {
-    command = <<-EOF
-      # This script simply writes a placeholder HTML page
-      # referencing the S3 bucket link. It won't list actual files unless
-      # you update the logic to dynamically retrieve the object list.
-      BUCKET_URL="https://$${aws_s3_bucket.video_bucket.bucket}.s3.amazonaws.com"
-
-      echo "<html><body><h1>Client Video Footage</h1><p>No local videos are uploaded directly by Terraform.</p>" > /usr/share/nginx/html/index.html
-      echo "<p>Videos will appear in $${BUCKET_URL} once the FTP-to-S3 sync job runs.</p>" >> /usr/share/nginx/html/index.html
-      echo "</body></html>" >> /usr/share/nginx/html/index.html
-    EOF
   }
 }
