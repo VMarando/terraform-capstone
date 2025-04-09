@@ -6,22 +6,22 @@ resource "tls_private_key" "new_key" {
 
 # Generate a random string to ensure unique key pair name
 resource "random_id" "key_id" {
-  byte_length = 8  # You can adjust the byte length for more or fewer characters
+  byte_length = 8  # Adjust as needed
 }
 
 # Generate a random string to ensure unique bucket name
 resource "random_id" "bucket_id" {
-  byte_length = 8  # Adjust byte length for a unique bucket name
+  byte_length = 8  # Adjust as needed
 }
 
 resource "aws_key_pair" "deployer" {
-  key_name   = "my-nginx-key-${random_id.key_id.hex}"  # Combine static part with random string
+  key_name   = "my-nginx-key-${random_id.key_id.hex}"  # Unique key name
   public_key = tls_private_key.new_key.public_key_openssh
 }
 
 resource "local_file" "private_key" {
   content         = tls_private_key.new_key.private_key_pem
-  filename        = "${path.module}/my-nginx-key-${random_id.key_id.hex}.pem"  # Save with a unique name
+  filename        = "${path.module}/my-nginx-key-${random_id.key_id.hex}.pem"  # Unique file name
   file_permission = "0600"
   depends_on      = [aws_key_pair.deployer]
 }
@@ -29,7 +29,7 @@ resource "local_file" "private_key" {
 # 🌐 Create a VPC
 resource "aws_vpc" "main_vpc" {
   cidr_block = "10.0.0.0/16"
-  
+
   tags = {
     Name = "Optimus-VPC"
   }
@@ -48,7 +48,7 @@ resource "aws_internet_gateway" "igw" {
 resource "aws_subnet" "public_subnet" {
   vpc_id                  = aws_vpc.main_vpc.id
   cidr_block              = "10.0.1.0/24"
-  map_public_ip_on_launch = true  # ✅ Ensures EC2 instances get public IPs
+  map_public_ip_on_launch = true  # Ensures EC2 instances get public IPs
   availability_zone       = var.availability_zone
 
   tags = {
@@ -60,7 +60,6 @@ resource "aws_subnet" "public_subnet" {
 resource "aws_route_table" "public_rt" {
   vpc_id = aws_vpc.main_vpc.id
 
-  # 🔗 Route all outbound traffic (0.0.0.0/0) to the Internet Gateway
   route {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.igw.id
@@ -76,13 +75,13 @@ resource "aws_route_table_association" "public_rt_assoc" {
   route_table_id = aws_route_table.public_rt.id
 }
 
-# 🔒 Create a Security Group for the EC2 Instance
+# 🔒 Create a Security Group for the EC2 Instances
 resource "aws_security_group" "web_sg" {
   name        = "web_sg"
   description = "Allow web, SSH, and HTTPS traffic"
   vpc_id      = aws_vpc.main_vpc.id
 
-  # 🟢 Allow SSH (port 22) for remote access
+  # Allow SSH
   ingress {
     from_port   = 22
     to_port     = 22
@@ -90,7 +89,7 @@ resource "aws_security_group" "web_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # 🟢 Allow HTTP (port 80) for web traffic
+  # Allow HTTP
   ingress {
     from_port   = 80
     to_port     = 80
@@ -98,7 +97,7 @@ resource "aws_security_group" "web_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # 🟢 Allow HTTPS (port 443) for secure traffic
+  # Allow HTTPS
   ingress {
     from_port   = 443
     to_port     = 443
@@ -106,7 +105,7 @@ resource "aws_security_group" "web_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # 🔴 Allow all outbound traffic (Needed for updates & installs)
+  # Allow all outbound traffic
   egress {
     from_port   = 0
     to_port     = 0
@@ -115,7 +114,64 @@ resource "aws_security_group" "web_sg" {
   }
 }
 
-# 🖥 Deploy EC2 Instance for FTP-to-S3 Sync and Nginx
+# 🖥 Deploy EC2 Instance with Nginx (Web Server)
+resource "aws_instance" "web_server" {
+  ami                    = var.ami_id
+  instance_type          = var.instance_type
+  key_name               = aws_key_pair.deployer.key_name
+  vpc_security_group_ids = [aws_security_group.web_sg.id]
+  subnet_id              = aws_subnet.public_subnet.id
+  associate_public_ip_address = true
+
+  # User Data: Install and configure Nginx, AWS CLI, etc.
+  user_data = <<-EOF
+#!/bin/bash
+set -ex
+
+LOGFILE="/var/log/user-data.log"
+exec > >(tee -a $LOGFILE) 2>&1
+
+echo "Starting Nginx web server setup at $(date)"
+
+sudo apt update -y
+sudo apt install -y nginx awscli ec2-instance-connect
+
+sudo systemctl start nginx
+sudo systemctl enable nginx
+sudo systemctl restart ssh
+
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw --force enable
+
+cat <<HTML_EOF | sudo tee /var/www/html/index.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Terraform Deployed Web Server</title>
+</head>
+<body>
+  <h1>Welcome to Nginx on Ubuntu 22.04!</h1>
+  <p>Optimus Capstone - Terraform Deployed AWS Web Server</p>
+  <p>Region: $(curl -s http://169.254.169.254/latest/meta-data/placement/region)</p>
+  <p>Instance ID: $(curl -s http://169.254.169.254/latest/meta-data/instance-id)</p>
+</body>
+</html>
+HTML_EOF
+
+sudo reboot
+EOF
+
+  tags = {
+    Name        = var.instance_name
+    Environment = "Production"
+    DeployedBy  = "Terraform"
+  }
+}
+
+# 🖥 Deploy EC2 Instance for FTP-to-S3 Sync (Sync Server)
 resource "aws_instance" "ftp_s3_sync_server" {
   ami                    = var.ami_id
   instance_type          = var.instance_type
@@ -124,34 +180,34 @@ resource "aws_instance" "ftp_s3_sync_server" {
   subnet_id              = aws_subnet.public_subnet.id
   associate_public_ip_address = true
 
-  # 🚀 User Data Script: Installs dependencies and sets up cron job for FTP to S3 sync
+  # User Data: Install AWS CLI, FTP client, cron; set up FTP-to-S3 sync script and cron job
   user_data = <<-EOF
 #!/bin/bash
 set -ex
 
-# Install AWS CLI, FTP client, and cron
+# Update and install dependencies
 sudo apt-get update -y
 sudo apt-get install -y awscli ftp cron
 
-# Create a local directory for the video files
+# Create a directory for video files
 mkdir -p /tmp/video_files
 
-# Create the FTP to S3 sync script
+# Create the FTP-to-S3 sync script
 cat <<'EOL' > /tmp/ftp_to_s3_sync.sh
 #!/bin/bash
 
-# FTP Server Credentials
+# FTP Server Credentials - update these with your FTP server details
 FTP_HOST="ftp.example.com"
 FTP_USER="your_ftp_user"
 FTP_PASS="your_ftp_password"
 
-# Local directory to store downloaded files
+# Local directory for downloaded files
 LOCAL_DIR="/tmp/video_files"
 
-# S3 bucket to upload files to
+# S3 bucket to upload files to - update with your bucket name if needed
 S3_BUCKET="s3://your-bucket-name/"
 
-# Download the files from the FTP server
+# Download files from the FTP server
 ftp -n $FTP_HOST <<END_SCRIPT
 quote USER $FTP_USER
 quote PASS $FTP_PASS
@@ -159,20 +215,20 @@ mget /path/to/videos/* $LOCAL_DIR/
 quit
 END_SCRIPT
 
-# Upload the downloaded files to the S3 bucket
+# Sync the local directory with S3
 aws s3 sync $LOCAL_DIR $S3_BUCKET --acl public-read
 
-# Clean up: Remove downloaded files after upload
+# Clean up local files after upload
 rm -rf $LOCAL_DIR
 EOL
 
-# Make the script executable
+# Make the sync script executable
 chmod +x /tmp/ftp_to_s3_sync.sh
 
-# Set up cron job to run the script every 5 minutes
+# Set up a cron job to run the sync script every 5 minutes
 echo "*/5 * * * * /tmp/ftp_to_s3_sync.sh >> /var/log/ftp_to_s3_sync.log 2>&1" | sudo tee -a /etc/crontab
 
-# Restart cron service to apply the changes
+# Restart cron service
 sudo service cron restart
 EOF
 
@@ -185,7 +241,7 @@ EOF
 
 # 🌐 Create an S3 Bucket for video storage with a random name
 resource "aws_s3_bucket" "video_bucket" {
-  bucket = "video-bucket-${random_id.bucket_id.hex}"  # Combine static part with random string
+  bucket = "video-bucket-${random_id.bucket_id.hex}"  # Unique bucket name
 
   tags = {
     Name = "Video Bucket"
@@ -201,7 +257,7 @@ resource "aws_s3_object" "video_files" {
   acl     = "public-read"
 }
 
-# 📄 Bash script to create the HTML file for the Nginx server
+# 📄 Generate an HTML file for the Nginx server referencing the videos
 resource "null_resource" "generate_html" {
   provisioner "local-exec" {
     command = <<-EOF
@@ -224,17 +280,47 @@ resource "null_resource" "generate_html" {
   }
 }
 
-# Output the public IP of the NGINX instance for easy access
+# Outputs for accessing the instances
 output "nginx_public_ip" {
   value = aws_instance.web_server.public_ip
 }
 
-# Output the public IP of the FTP-to-S3 Sync EC2 instance for easy access
 output "ftp_s3_sync_server_public_ip" {
   value = aws_instance.ftp_s3_sync_server.public_ip
 }
 
-# Define variables for bucket name and video files
-variable "bucket_name" {
-  description = "The name of the S3 bucket"
+####################
+# Variable Definitions
+####################
+variable "ami_id" {
+  description = "AMI to use for the EC2 instances."
   type        = string
+}
+
+variable "instance_type" {
+  description = "EC2 instance type."
+  type        = string
+  default     = "t2.micro"
+}
+
+variable "instance_name" {
+  description = "Name tag for the Nginx EC2 instance."
+  type        = string
+  default     = "MyNginxServer"
+}
+
+variable "availability_zone" {
+  description = "The availability zone for the subnet."
+  type        = string
+}
+
+variable "bucket_name" {
+  description = "The name of the S3 bucket (if used externally)."
+  type        = string
+}
+
+variable "video_files" {
+  description = "List of video file names to upload."
+  type        = list(string)
+  default     = ["video1.mp4", "video2.mp4", "video3.mp4", "video4.mp4"]
+}
