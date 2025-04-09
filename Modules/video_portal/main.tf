@@ -8,12 +8,12 @@ resource "tls_private_key" "new_key" {
   rsa_bits  = 2048
 }
 
-# Generate a single random ID for all resources (for tenant identification)
+# Generate a single common random ID for all resources (tenant isolation)
 resource "random_id" "common_id" {
   byte_length = 8
 }
 
-# Variable for the client name (used in the web header)
+# Variable for the client name, which will appear in the webpage header
 variable "client_name" {
   description = "The client name to display on the webpage header."
   type        = string
@@ -26,7 +26,7 @@ resource "aws_key_pair" "deployer" {
   public_key = tls_private_key.new_key.public_key_openssh
 }
 
-# Save the private key locally (for SSH access)
+# Save the private key to a local file (for SSH access)
 resource "local_file" "private_key" {
   content         = tls_private_key.new_key.private_key_pem
   filename        = "${path.module}/my-nginx-key-${random_id.common_id.hex}.pem"
@@ -42,7 +42,7 @@ resource "aws_vpc" "main_vpc" {
   }
 }
 
-# 📡 Create an Internet Gateway
+# 📡 Create an Internet Gateway (needed for public subnet)
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main_vpc.id
   tags = {
@@ -61,7 +61,7 @@ resource "aws_subnet" "public_subnet" {
   }
 }
 
-# 🚦 Create a Route Table and Associate with the Public Subnet
+# 🚦 Create a Route Table and associate it with the public subnet
 resource "aws_route_table" "public_rt" {
   vpc_id = aws_vpc.main_vpc.id
 
@@ -80,7 +80,7 @@ resource "aws_route_table_association" "public_rt_assoc" {
   route_table_id = aws_route_table.public_rt.id
 }
 
-# 🔒 Create a Security Group for the instances
+# 🔒 Create a Security Group for all instances
 resource "aws_security_group" "web_sg" {
   name        = "web_sg-${random_id.common_id.hex}"
   description = "Allow web, SSH, and HTTPS traffic"
@@ -92,18 +92,21 @@ resource "aws_security_group" "web_sg" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
   ingress {
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
   ingress {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -112,7 +115,7 @@ resource "aws_security_group" "web_sg" {
   }
 }
 
-# 🌐 Create an S3 Bucket for video storage
+# 🌐 Create an S3 Bucket for video storage (auto-generated name)
 resource "aws_s3_bucket" "video_bucket" {
   bucket = "video-bucket-${random_id.common_id.hex}"
   tags = {
@@ -124,7 +127,7 @@ resource "aws_s3_bucket" "video_bucket" {
 # EC2 Instances
 ##############################################
 
-# 🖥 Nginx Web Server: Serves the dynamic video listing page.
+# 🖥 Deploy EC2 Instance with Nginx (Web Server) that serves the video webpage.
 resource "aws_instance" "web_server" {
   ami                    = var.ami_id
   instance_type          = var.instance_type
@@ -133,7 +136,6 @@ resource "aws_instance" "web_server" {
   subnet_id              = aws_subnet.public_subnet.id
   associate_public_ip_address = true
 
-  # User-data (Make sure the very first line has no preceding whitespace)
   user_data = <<-EOF
 #!/bin/bash
 set -ex
@@ -156,20 +158,19 @@ sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
 sudo ufw --force enable
 
-# Create a script to update /var/www/html/index.html with S3 video listings
-
+# Create a script to update the Nginx index page with the S3 video listing
 cat <<'SCRIPT_EOF' > /tmp/update_index.sh
 #!/bin/bash
 set -e
-# Use the S3 bucket name from Terraform
+# The S3 bucket name is inserted via Terraform interpolation at runtime.
 BUCKET_NAME="$${aws_s3_bucket.video_bucket.bucket}"
 WEB_ROOT="/var/www/html"
 TMP_HTML="/tmp/index.html"
 
-# Build the HTML: Header with client name and video list
+# Create the header with the client name and title
 echo "<html><body><h1>${var.client_name} - Video Library</h1><ul>" > $$TMP_HTML
 
-# List objects in the S3 bucket and extract object keys
+# List objects in the S3 bucket, extracting their keys
 mapfile -t S3_FILES < <(aws s3 ls "s3://$${BUCKET_NAME}" --recursive | awk '{print $4}')
 
 if [ $${#S3_FILES[@]} -eq 0 ]; then
@@ -187,9 +188,9 @@ sudo mv $$TMP_HTML $$WEB_ROOT/index.html
 SCRIPT_EOF
 
 chmod +x /tmp/update_index.sh
-# Run immediately for initial page generation
+# Run it once immediately to create the initial page
 /tmp/update_index.sh
-# Schedule the update script to run every 5 minutes via cron
+# Schedule it to run every 5 minutes via cron
 echo "*/5 * * * * /tmp/update_index.sh >> /var/log/update_index_cron.log 2>&1" | sudo tee -a /etc/crontab
 EOF
 
@@ -200,7 +201,7 @@ EOF
   }
 }
 
-# 🖥 FTP-to-S3 Sync Server: Downloads videos from an FTP server and syncs them to S3.
+# 🖥 Deploy EC2 Instance for FTP-to-S3 Sync (Sync Server)
 resource "aws_instance" "ftp_s3_sync_server" {
   ami                    = var.ami_id
   instance_type          = var.instance_type
@@ -217,7 +218,7 @@ set -ex
 sudo apt-get update -y
 sudo apt-get install -y awscli ftp cron
 
-# Create directory for video files
+# Create a directory for video files
 mkdir -p /tmp/video_files
 
 # Create the FTP-to-S3 sync script
@@ -231,8 +232,9 @@ FTP_PASS="your_ftp_password"
 # Local directory for downloaded files
 LOCAL_DIR="/tmp/video_files"
 
-# S3 bucket to upload files to; update this value if needed.
-S3_BUCKET="s3://your-bucket-name/"
+# S3 bucket to upload files to - this should ideally be updated to your actual bucket
+# For now, it is a placeholder. You could inject the bucket name via a similar method as in the web server.
+S3_BUCKET="s3://video-bucket-PLACEHOLDER/"
 
 ftp -n $$FTP_HOST <<END_SCRIPT
 quote USER $$FTP_USER
@@ -257,3 +259,4 @@ EOF
     DeployedBy  = "Terraform"
   }
 }
+
