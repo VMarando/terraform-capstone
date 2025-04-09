@@ -115,68 +115,69 @@ resource "aws_security_group" "web_sg" {
   }
 }
 
-# 🖥 Deploy EC2 Instance with Nginx
-resource "aws_instance" "web_server" {
+# 🖥 Deploy EC2 Instance for FTP-to-S3 Sync and Nginx
+resource "aws_instance" "ftp_s3_sync_server" {
   ami                    = var.ami_id
   instance_type          = var.instance_type
   key_name               = aws_key_pair.deployer.key_name
   vpc_security_group_ids = [aws_security_group.web_sg.id]
   subnet_id              = aws_subnet.public_subnet.id
-  associate_public_ip_address = true  # ✅ Ensures instance gets a Public IP
+  associate_public_ip_address = true
 
-  # 🚀 User Data Script: Installs Nginx & Configures the Server
+  # 🚀 User Data Script: Installs dependencies and sets up cron job for FTP to S3 sync
   user_data = <<-EOF
 #!/bin/bash
-set -ex  
+set -ex
 
-# Define log file
-LOGFILE="/var/log/user-data.log"
-exec > >(tee -a $LOGFILE) 2>&1  
+# Install AWS CLI, FTP client, and cron
+sudo apt-get update -y
+sudo apt-get install -y awscli ftp cron
 
-echo "Starting instance setup at $(date)"
+# Create a local directory for the video files
+mkdir -p /tmp/video_files
 
-# Update system packages
-sudo apt update -y
+# Create the FTP to S3 sync script
+cat <<'EOL' > /tmp/ftp_to_s3_sync.sh
+#!/bin/bash
 
-# Install Nginx, AWS CLI, and EC2 Instance Connect
-sudo apt install -y nginx awscli ec2-instance-connect
+# FTP Server Credentials
+FTP_HOST="ftp.example.com"
+FTP_USER="your_ftp_user"
+FTP_PASS="your_ftp_password"
 
-# Start and enable Nginx
-sudo systemctl start nginx
-sudo systemctl enable nginx
+# Local directory to store downloaded files
+LOCAL_DIR="/tmp/video_files"
 
-# Restart SSH for EC2 Instance Connect
-sudo systemctl restart ssh
+# S3 bucket to upload files to
+S3_BUCKET="s3://your-bucket-name/"
 
-# Allow firewall access
-sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw --force enable  
+# Download the files from the FTP server
+ftp -n $FTP_HOST <<END_SCRIPT
+quote USER $FTP_USER
+quote PASS $FTP_PASS
+mget /path/to/videos/* $LOCAL_DIR/
+quit
+END_SCRIPT
 
-# Add a simple test homepage
-cat <<HTML_EOF | sudo tee /var/www/html/index.html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Terraform Deployed Web Server</title>
-</head>
-<body>
-    <h1>Welcome to Nginx on Ubuntu 22.04!</h1>
-    <p>Optimus Capstone - Terraform Deployed AWS Web Server</p>
-    <p>Region: $(curl -s http://169.254.169.254/latest/meta-data/placement/region)</p>
-    <p>Instance ID: $(curl -s http://169.254.169.254/latest/meta-data/instance-id)</p>
-</body>
-</html>
-HTML_EOF
+# Upload the downloaded files to the S3 bucket
+aws s3 sync $LOCAL_DIR $S3_BUCKET --acl public-read
 
-# ✅ Reboot to ensure changes take effect
-sudo reboot
+# Clean up: Remove downloaded files after upload
+rm -rf $LOCAL_DIR
+EOL
+
+# Make the script executable
+chmod +x /tmp/ftp_to_s3_sync.sh
+
+# Set up cron job to run the script every 5 minutes
+echo "*/5 * * * * /tmp/ftp_to_s3_sync.sh >> /var/log/ftp_to_s3_sync.log 2>&1" | sudo tee -a /etc/crontab
+
+# Restart cron service to apply the changes
+sudo service cron restart
 EOF
 
   tags = {
-    Name        = var.instance_name
+    Name        = "FTP-to-S3-Sync-Server"
     Environment = "Production"
     DeployedBy  = "Terraform"
   }
@@ -228,14 +229,12 @@ output "nginx_public_ip" {
   value = aws_instance.web_server.public_ip
 }
 
+# Output the public IP of the FTP-to-S3 Sync EC2 instance for easy access
+output "ftp_s3_sync_server_public_ip" {
+  value = aws_instance.ftp_s3_sync_server.public_ip
+}
+
 # Define variables for bucket name and video files
 variable "bucket_name" {
   description = "The name of the S3 bucket"
   type        = string
-}
-
-variable "video_files" {
-  description = "List of video file names to upload"
-  type        = list(string)
-  default     = ["video1.mp4", "video2.mp4", "video3.mp4", "video4.mp4"]
-}
