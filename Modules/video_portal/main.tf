@@ -122,6 +122,47 @@ resource "aws_s3_bucket" "video_bucket" {
 }
 
 ##############################################
+# IAM Role for EC2: Grants S3 Read Permissions
+##############################################
+
+resource "aws_iam_role" "ec2_role" {
+  name = "ec2_video_role-${random_id.common_id.hex}"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Action    = "sts:AssumeRole",
+      Effect    = "Allow",
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "ec2_s3_policy" {
+  name = "ec2_s3_policy-${random_id.common_id.hex}"
+  role = aws_iam_role.ec2_role.id
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Sid    = "AllowS3ListAndGet",
+      Effect = "Allow",
+      Action = [
+        "s3:ListBucket",
+        "s3:GetObject"
+      ],
+      Resource = [
+        aws_s3_bucket.video_bucket.arn,
+        "${aws_s3_bucket.video_bucket.arn}/*"
+      ]
+    }]
+  })
+}
+
+resource "aws_iam_instance_profile" "ec2_profile" {
+  name = "ec2_video_profile-${random_id.common_id.hex}"
+  role = aws_iam_role.ec2_role.name
+}
+
+##############################################
 # EC2 Instance: Nginx Web Server (Dynamic Video List)
 ##############################################
 
@@ -132,6 +173,7 @@ resource "aws_instance" "web_server" {
   vpc_security_group_ids = [aws_security_group.web_sg.id]
   subnet_id              = aws_subnet.public_subnet.id
   associate_public_ip_address = true
+  iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
 
   user_data = <<EOF
 #!/bin/bash
@@ -142,7 +184,7 @@ exec > >(tee -a $$LOGFILE) 2>&1
 
 echo "Starting Nginx web server setup at $(date)"
 
-# Install Nginx and AWS CLI
+# Install Nginx and AWS CLI (Using Ubuntu 22.04 commands)
 sudo apt update -y
 sudo apt install -y nginx awscli ec2-instance-connect
 
