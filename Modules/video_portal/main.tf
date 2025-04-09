@@ -10,22 +10,24 @@ resource "tls_private_key" "new_key" {
 
 # Generate a random string to ensure a unique key pair name
 resource "random_id" "key_id" {
-  byte_length = 8  # Adjust as needed
+  byte_length = 8
 }
 
 # Generate a random string to ensure a unique bucket name
 resource "random_id" "bucket_id" {
-  byte_length = 8  # Adjust as needed
+  byte_length = 8
 }
 
+# Create an AWS key pair using our generated SSH key
 resource "aws_key_pair" "deployer" {
-  key_name   = "my-nginx-key-${random_id.key_id.hex}"  # Unique key name
+  key_name   = "my-nginx-key-${random_id.key_id.hex}"
   public_key = tls_private_key.new_key.public_key_openssh
 }
 
+# Save the private key to a local file
 resource "local_file" "private_key" {
   content         = tls_private_key.new_key.private_key_pem
-  filename        = "${path.module}/my-nginx-key-${random_id.key_id.hex}.pem"  # Unique file name
+  filename        = "${path.module}/my-nginx-key-${random_id.key_id.hex}.pem"
   file_permission = "0600"
   depends_on      = [aws_key_pair.deployer]
 }
@@ -33,7 +35,7 @@ resource "local_file" "private_key" {
 # 🌐 Create a VPC
 resource "aws_vpc" "main_vpc" {
   cidr_block = "10.0.0.0/16"
-  
+
   tags = {
     Name = "Optimus-VPC"
   }
@@ -52,7 +54,7 @@ resource "aws_internet_gateway" "igw" {
 resource "aws_subnet" "public_subnet" {
   vpc_id                  = aws_vpc.main_vpc.id
   cidr_block              = "10.0.1.0/24"
-  map_public_ip_on_launch = true  # Ensures EC2 instances get public IPs
+  map_public_ip_on_launch = true
   availability_zone       = var.availability_zone
 
   tags = {
@@ -127,6 +129,7 @@ resource "aws_instance" "web_server" {
   subnet_id              = aws_subnet.public_subnet.id
   associate_public_ip_address = true
 
+  # Install Nginx, AWS CLI, etc.
   user_data = <<-EOF
     #!/bin/bash
     set -ex
@@ -183,11 +186,12 @@ resource "aws_instance" "ftp_s3_sync_server" {
   subnet_id              = aws_subnet.public_subnet.id
   associate_public_ip_address = true
 
+  # Installs AWS CLI, FTP client, cron; sets up the FTP-to-S3 sync script
   user_data = <<-EOF
     #!/bin/bash
     set -ex
 
-    # Install dependencies: AWS CLI, FTP client, cron
+    # Install dependencies
     sudo apt-get update -y
     sudo apt-get install -y awscli ftp cron
 
@@ -198,7 +202,7 @@ resource "aws_instance" "ftp_s3_sync_server" {
     cat <<'EOL' > /tmp/ftp_to_s3_sync.sh
     #!/bin/bash
 
-    # FTP Server Credentials - update these with your FTP server details
+    # FTP Server Credentials - update these with your actual FTP details
     FTP_HOST="ftp.example.com"
     FTP_USER="your_ftp_user"
     FTP_PASS="your_ftp_password"
@@ -206,7 +210,7 @@ resource "aws_instance" "ftp_s3_sync_server" {
     # Local directory to store downloaded files
     LOCAL_DIR="/tmp/video_files"
 
-    # S3 bucket to upload files to - update this value if needed
+    # S3 bucket to upload files to
     S3_BUCKET="s3://your-bucket-name/"
 
     # Download files from the FTP server
@@ -230,7 +234,7 @@ resource "aws_instance" "ftp_s3_sync_server" {
     # Set up a cron job to run the sync script every 5 minutes
     echo "*/5 * * * * /tmp/ftp_to_s3_sync.sh >> /var/log/ftp_to_s3_sync.log 2>&1" | sudo tee -a /etc/crontab
 
-    # Restart the cron service to apply changes
+    # Restart cron
     sudo service cron restart
   EOF
 
@@ -241,43 +245,28 @@ resource "aws_instance" "ftp_s3_sync_server" {
   }
 }
 
-# 🌐 Create an S3 Bucket for video storage with a random name
+# 🌐 Create an S3 Bucket (Randomly Named)
 resource "aws_s3_bucket" "video_bucket" {
-  bucket = "video-bucket-${random_id.bucket_id.hex}"  # Unique bucket name
+  bucket = "video-bucket-${random_id.bucket_id.hex}"
 
   tags = {
     Name = "Video Bucket"
   }
 }
 
-# 📤 Upload video files to the S3 bucket
-resource "aws_s3_object" "video_files" {
-  count   = length(var.video_files)
-  bucket  = aws_s3_bucket.video_bucket.bucket
-  key     = element(var.video_files, count.index)
-  source  = "path_to_video_files/${element(var.video_files, count.index)}"
-  acl     = "public-read"
-}
-
-# 📄 Generate an HTML file for the Nginx server referencing the videos
+# 📄 Generate a Placeholder HTML page on the web server
+#    (No local file upload resource is used, so we won't fail if no local videos exist)
 resource "null_resource" "generate_html" {
   provisioner "local-exec" {
     command = <<-EOF
+      # This script simply writes a placeholder HTML page
+      # referencing the S3 bucket link. It won't list actual files unless
+      # you update the logic to dynamically retrieve the object list.
       BUCKET_URL="https://$${aws_s3_bucket.video_bucket.bucket}.s3.amazonaws.com"
-      VIDEO_FILES=(${join(" ", var.video_files)})
 
-      echo "<html><body><h1>Client Video Footage</h1><ul>" > /usr/share/nginx/html/index.html
-
-      if [ $${#VIDEO_FILES[@]} -eq 0 ]; then
-        echo "<p>No videos available at this time.</p>" >> /usr/share/nginx/html/index.html
-      else
-        for video in "$${VIDEO_FILES[@]}"
-        do
-          echo "<li><a href='$${BUCKET_URL}/$video'>$video</a></li>" >> /usr/share/nginx/html/index.html
-        done
-      fi
-
-      echo "</ul></body></html>" >> /usr/share/nginx/html/index.html
+      echo "<html><body><h1>Client Video Footage</h1><p>No local videos are uploaded directly by Terraform.</p>" > /usr/share/nginx/html/index.html
+      echo "<p>Videos will appear in $${BUCKET_URL} once the FTP-to-S3 sync job runs.</p>" >> /usr/share/nginx/html/index.html
+      echo "</body></html>" >> /usr/share/nginx/html/index.html
     EOF
   }
 }
