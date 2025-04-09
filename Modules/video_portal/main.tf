@@ -4,14 +4,24 @@ resource "tls_private_key" "new_key" {
   rsa_bits  = 2048
 }
 
+# Generate a random string to ensure unique key pair name
+resource "random_id" "key_id" {
+  byte_length = 8  # You can adjust the byte length for more or fewer characters
+}
+
+# Generate a random string to ensure unique bucket name
+resource "random_id" "bucket_id" {
+  byte_length = 8  # Adjust byte length for a unique bucket name
+}
+
 resource "aws_key_pair" "deployer" {
-  key_name   = "my-nginx-key"
+  key_name   = "my-nginx-key-${random_id.key_id.hex}"  # Combine static part with random string
   public_key = tls_private_key.new_key.public_key_openssh
 }
 
 resource "local_file" "private_key" {
   content         = tls_private_key.new_key.private_key_pem
-  filename        = "${path.module}/my-nginx-key.pem"
+  filename        = "${path.module}/my-nginx-key-${random_id.key_id.hex}.pem"  # Save with a unique name
   file_permission = "0600"
   depends_on      = [aws_key_pair.deployer]
 }
@@ -172,9 +182,13 @@ EOF
   }
 }
 
-# 🌐 Create an S3 Bucket for video storage
+# 🌐 Create an S3 Bucket for video storage with a random name
 resource "aws_s3_bucket" "video_bucket" {
-  bucket = var.bucket_name
+  bucket = "video-bucket-${random_id.bucket_id.hex}"  # Combine static part with random string
+
+  tags = {
+    Name = "Video Bucket"
+  }
 }
 
 # 📤 Upload video files to the S3 bucket
@@ -225,4 +239,3 @@ variable "video_files" {
   type        = list(string)
   default     = ["video1.mp4", "video2.mp4", "video3.mp4", "video4.mp4"]
 }
-
