@@ -122,53 +122,84 @@ resource "aws_security_group" "web_sg" {
 
 # 🖥 Deploy EC2 Instance with Nginx (Web Server)
 resource "aws_instance" "web_server" {
-  ami                    = var.ami_id
-  instance_type          = var.instance_type
-  key_name               = aws_key_pair.deployer.key_name
-  vpc_security_group_ids = [aws_security_group.web_sg.id]
-  subnet_id              = aws_subnet.public_subnet.id
-  associate_public_ip_address = true
+ami                    = var.ami_id
+instance_type          = var.instance_type
+key_name               = aws_key_pair.deployer.key_name
+vpc_security_group_ids = [aws_security_group.web_sg.id]
+subnet_id              = aws_subnet.public_subnet.id
+associate_public_ip_address = true
 
-  # Install Nginx, AWS CLI, etc.
   user_data = <<-EOF
-    #!/bin/bash
-    set -ex
+#!/bin/bash
+set -ex
 
-    LOGFILE="/var/log/user-data.log"
-    exec > >(tee -a $LOGFILE) 2>&1
+LOGFILE="/var/log/user-data.log"
+exec > >(tee -a $LOGFILE) 2>&1
 
-    echo "Starting Nginx web server setup at $(date)"
+echo "Starting Nginx web server setup at $(date)"
 
-    sudo apt update -y
-    sudo apt install -y nginx awscli ec2-instance-connect
+# 1. Install software
+sudo apt update -y
+sudo apt install -y nginx awscli ec2-instance-connect
 
-    sudo systemctl start nginx
-    sudo systemctl enable nginx
-    sudo systemctl restart ssh
+sudo systemctl start nginx
+sudo systemctl enable nginx
+sudo systemctl restart ssh
 
-    sudo ufw allow 22/tcp
-    sudo ufw allow 80/tcp
-    sudo ufw allow 443/tcp
-    sudo ufw --force enable
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw --force enable
 
-    cat <<HTML_EOF | sudo tee /var/www/html/index.html
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <title>Terraform Deployed Web Server</title>
-    </head>
-    <body>
-      <h1>Welcome to Nginx on Ubuntu 22.04!</h1>
-      <p>Optimus Capstone - Terraform Deployed AWS Web Server</p>
-      <p>Region: $(curl -s http://169.254.169.254/latest/meta-data/placement/region)</p>
-      <p>Instance ID: $(curl -s http://169.254.169.254/latest/meta-data/instance-id)</p>
-    </body>
-    </html>
-    HTML_EOF
+# 2. Create a script to update /var/www/html/index.html with files from S3
+cat <<'SCRIPT_EOF' > /tmp/update_index.sh
+#!/bin/bash
+set -e
 
-    sudo reboot
-  EOF
+# Name of the S3 bucket (substitute if you store it differently)
+BUCKET_NAME="${aws_s3_bucket.video_bucket.bucket}"
+
+# Directory where the final index.html will be placed
+WEB_ROOT="/var/www/html"
+
+# Temporary file for building the HTML
+TMP_HTML="/tmp/index.html"
+
+# Retrieve the list of objects in the S3 bucket
+# Using 'awk' to parse out the 4th column, which is the object key
+mapfile -t S3_FILES < <(aws s3 ls "s3://${BUCKET_NAME}" --recursive | awk '{print $4}')
+
+# Start building the HTML
+echo "<html><body><h1>Client Video Footage</h1><ul>" > $TMP_HTML
+
+if [ ${#S3_FILES[@]} -eq 0 ]; then
+  echo "<p>No videos available at this time.</p>" >> $TMP_HTML
+else
+  for object in "${S3_FILES[@]}"; do
+    # Skip empty lines
+    if [ -n "$object" ]; then
+      echo "<li><a href='https://${BUCKET_NAME}.s3.amazonaws.com/$object'>$object</a></li>" >> $TMP_HTML
+    fi
+  done
+fi
+
+echo "</ul></body></html>" >> $TMP_HTML
+
+# Move the file into place
+sudo mv $TMP_HTML $WEB_ROOT/index.html
+SCRIPT_EOF
+
+chmod +x /tmp/update_index.sh
+
+# 3. Run update_index.sh now to generate the initial page
+/tmp/update_index.sh
+
+# 4. Schedule the script to run every 5 minutes
+echo "*/5 * * * * /tmp/update_index.sh >> /var/log/update_index_cron.log 2>&1" | sudo tee -a /etc/crontab
+
+# 5. Reboot (optional, to ensure everything is fresh)
+sudo reboot
+EOF
 
   tags = {
     Name        = var.instance_name
