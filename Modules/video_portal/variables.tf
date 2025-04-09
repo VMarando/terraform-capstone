@@ -8,6 +8,10 @@ variable "ami_id" {
   default     = "ami-0e1bed4f06a3b463d"  # Ubuntu 22.04 LTS AMI for us-east-1
 }
 
+variable "aws_region" {
+  default = "us-east-1"
+}
+
 variable "instance_type" {
   description = "EC2 instance type."
   type        = string
