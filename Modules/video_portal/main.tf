@@ -123,7 +123,7 @@ set -ex
 LOGFILE="/var/log/user-data.log"
 exec > >(tee -a $LOGFILE) 2>&1  
 
-echo "📌 Starting instance setup at $(date)"
+echo "Starting instance setup at $(date)"
 
 # Update system packages
 sudo apt update -y
@@ -143,3 +143,86 @@ sudo ufw allow 22/tcp
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
 sudo ufw --force enable  
+
+# Add a simple test homepage
+cat <<HTML_EOF | sudo tee /var/www/html/index.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Terraform Deployed Web Server</title>
+</head>
+<body>
+    <h1>Welcome to Nginx on Ubuntu 22.04!</h1>
+    <p>Optimus Capstone - Terraform Deployed AWS Web Server</p>
+    <p>Region: $(curl -s http://169.254.169.254/latest/meta-data/placement/region)</p>
+    <p>Instance ID: $(curl -s http://169.254.169.254/latest/meta-data/instance-id)</p>
+</body>
+</html>
+HTML_EOF
+
+# ✅ Reboot to ensure changes take effect
+sudo reboot
+EOF
+
+  tags = {
+    Name        = var.instance_name
+    Environment = "Production"
+    DeployedBy  = "Terraform"
+  }
+}
+
+# 🌐 Create an S3 Bucket for video storage
+resource "aws_s3_bucket" "video_bucket" {
+  bucket = var.bucket_name
+}
+
+# 📤 Upload video files to the S3 bucket
+resource "aws_s3_object" "video_files" {
+  count   = length(var.video_files)
+  bucket  = aws_s3_bucket.video_bucket.bucket
+  key     = element(var.video_files, count.index)
+  source  = "path_to_video_files/${element(var.video_files, count.index)}"
+  acl     = "public-read"
+}
+
+# 📄 Bash script to create the HTML file for the Nginx server
+resource "null_resource" "generate_html" {
+  provisioner "local-exec" {
+    command = <<-EOF
+      BUCKET_URL="https://$${aws_s3_bucket.video_bucket.bucket}.s3.amazonaws.com"
+      VIDEO_FILES=(${join(" ", var.video_files)})
+
+      echo "<html><body><h1>Client Video Footage</h1><ul>" > /usr/share/nginx/html/index.html
+
+      if [ $${#VIDEO_FILES[@]} -eq 0 ]; then
+        echo "<p>No videos available at this time.</p>" >> /usr/share/nginx/html/index.html
+      else
+        for video in "$${VIDEO_FILES[@]}"
+        do
+          echo "<li><a href='$${BUCKET_URL}/$video'>$video</a></li>" >> /usr/share/nginx/html/index.html
+        done
+      fi
+
+      echo "</ul></body></html>" >> /usr/share/nginx/html/index.html
+    EOF
+  }
+}
+
+# Output the public IP of the NGINX instance for easy access
+output "nginx_public_ip" {
+  value = aws_instance.web_server.public_ip
+}
+
+# Define variables for bucket name and video files
+variable "bucket_name" {
+  description = "The name of the S3 bucket"
+  type        = string
+}
+
+variable "video_files" {
+  description = "List of video file names to upload"
+  type        = list(string)
+  default     = ["video1.mp4", "video2.mp4", "video3.mp4", "video4.mp4"]
+}
+
