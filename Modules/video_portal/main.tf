@@ -175,16 +175,19 @@ resource "aws_instance" "web_server" {
   associate_public_ip_address = true
   iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
 
+  # Ensure the S3 bucket exists before running user_data
+  depends_on = [aws_s3_bucket.video_bucket]
+
   user_data = <<EOF
 #!/bin/bash
 set -ex
 
 LOGFILE="/var/log/user-data.log"
-exec > >(tee -a $$LOGFILE) 2>&1
+exec > >(tee -a \$LOGFILE) 2>&1
 
 echo "Starting Nginx web server setup at $(date)"
 
-# Install Nginx and AWS CLI (Using Ubuntu 22.04 commands)
+# Install Nginx, AWS CLI, and EC2 Instance Connect on Ubuntu 22.04
 sudo apt update -y
 sudo apt install -y nginx awscli ec2-instance-connect
 
@@ -197,7 +200,7 @@ sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
 sudo ufw --force enable
 
-# Create a script to update the Nginx index page dynamically
+# Create a script to update the Nginx index page dynamically with video list
 cat <<SCRIPT_EOF > /tmp/update_index.sh
 #!/bin/bash
 set -e
@@ -205,19 +208,19 @@ BUCKET_NAME="${aws_s3_bucket.video_bucket.bucket}"
 WEB_ROOT="/var/www/html"
 TMP_HTML="/tmp/index.html"
 
-echo "<html><body><h1>${var.client_name} - Video Library</h1><ul>" > $$TMP_HTML
-mapfile -t S3_FILES < <(aws s3 ls "s3://$$BUCKET_NAME" --recursive | awk '{print $$4}')
-if [ $${#S3_FILES[@]} -eq 0 ]; then
-  echo "<p>No videos available at this time.</p>" >> $$TMP_HTML
+echo "<html><body><h1>${var.client_name} - Video Library</h1><ul>" > \$TMP_HTML
+mapfile -t S3_FILES < <(aws s3 ls "s3://\$BUCKET_NAME" --recursive | awk '{print \$4}')
+if [ \${#S3_FILES[@]} -eq 0 ]; then
+  echo "<p>No videos available at this time.</p>" >> \$TMP_HTML
 else
-  for object in "$${S3_FILES[@]}"; do
-    if [ -n "$$object" ]; then
-      echo "<li><a href='https://$$BUCKET_NAME.s3.amazonaws.com/$$object'>$$object</a></li>" >> $$TMP_HTML
+  for object in "\${S3_FILES[@]}"; do
+    if [ -n "\$object" ]; then
+      echo "<li><a href='https://\$BUCKET_NAME.s3.amazonaws.com/\$object'>\$object</a></li>" >> \$TMP_HTML
     fi
   done
 fi
-echo "</ul></body></html>" >> $$TMP_HTML
-sudo mv $$TMP_HTML $$WEB_ROOT/index.html
+echo "</ul></body></html>" >> \$TMP_HTML
+sudo mv \$TMP_HTML \$WEB_ROOT/index.html
 SCRIPT_EOF
 
 chmod +x /tmp/update_index.sh
@@ -251,26 +254,7 @@ resource "aws_instance" "ftp_s3_sync_server" {
 set -ex
 
 sudo apt-get update -y
-sudo apt-get install -y awscli ftp cron nginx
-
-# Configure Nginx with a custom homepage
-cat <<NGINX_INDEX > /var/www/html/index.html
-<!DOCTYPE html>
-<html>
-<head>
-    <title>FTP-to-S3 Sync Server</title>
-</head>
-<body>
-    <h1>FTP-to-S3 Sync Server</h1>
-    <p>This server automatically syncs files from an FTP server to Amazon S3.</p>
-    <p>Last updated: $(date)</p>
-</body>
-</html>
-NGINX_INDEX
-
-# Ensure Nginx is running and enabled at boot
-sudo systemctl enable nginx
-sudo systemctl start nginx
+sudo apt-get install -y awscli ftp cron
 
 mkdir -p /tmp/video_files
 
@@ -284,15 +268,15 @@ FTP_PASS="your_ftp_password"
 LOCAL_DIR="/tmp/video_files"
 S3_BUCKET="s3://${aws_s3_bucket.video_bucket.bucket}"
 
-ftp -n $$FTP_HOST <<END_SCRIPT
-quote USER $$FTP_USER
-quote PASS $$FTP_PASS
-mget /path/to/videos/* $$LOCAL_DIR/
+ftp -n \$FTP_HOST <<END_SCRIPT
+quote USER \$FTP_USER
+quote PASS \$FTP_PASS
+mget /path/to/videos/* \$LOCAL_DIR/
 quit
 END_SCRIPT
 
-aws s3 sync $$LOCAL_DIR $$S3_BUCKET --acl public-read
-rm -rf $$LOCAL_DIR
+aws s3 sync \$LOCAL_DIR \$S3_BUCKET --acl public-read
+rm -rf \$LOCAL_DIR
 SCRIPT_EOF
 
 chmod +x /tmp/ftp_to_s3_sync.sh
