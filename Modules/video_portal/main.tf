@@ -1,15 +1,19 @@
+##############################################
+# Resources and Infrastructure Configuration
+##############################################
+
 # 🔑 Generate a New SSH Key Pair (Saves .pem file locally)
 resource "tls_private_key" "new_key" {
   algorithm = "RSA"
   rsa_bits  = 2048
 }
 
-# Generate a random string to ensure unique key pair name
+# Generate a random string to ensure a unique key pair name
 resource "random_id" "key_id" {
   byte_length = 8  # Adjust as needed
 }
 
-# Generate a random string to ensure unique bucket name
+# Generate a random string to ensure a unique bucket name
 resource "random_id" "bucket_id" {
   byte_length = 8  # Adjust as needed
 }
@@ -29,7 +33,7 @@ resource "local_file" "private_key" {
 # 🌐 Create a VPC
 resource "aws_vpc" "main_vpc" {
   cidr_block = "10.0.0.0/16"
-
+  
   tags = {
     Name = "Optimus-VPC"
   }
@@ -123,46 +127,45 @@ resource "aws_instance" "web_server" {
   subnet_id              = aws_subnet.public_subnet.id
   associate_public_ip_address = true
 
-  # User Data: Install and configure Nginx, AWS CLI, etc.
   user_data = <<-EOF
-#!/bin/bash
-set -ex
+    #!/bin/bash
+    set -ex
 
-LOGFILE="/var/log/user-data.log"
-exec > >(tee -a $LOGFILE) 2>&1
+    LOGFILE="/var/log/user-data.log"
+    exec > >(tee -a $LOGFILE) 2>&1
 
-echo "Starting Nginx web server setup at $(date)"
+    echo "Starting Nginx web server setup at $(date)"
 
-sudo apt update -y
-sudo apt install -y nginx awscli ec2-instance-connect
+    sudo apt update -y
+    sudo apt install -y nginx awscli ec2-instance-connect
 
-sudo systemctl start nginx
-sudo systemctl enable nginx
-sudo systemctl restart ssh
+    sudo systemctl start nginx
+    sudo systemctl enable nginx
+    sudo systemctl restart ssh
 
-sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw --force enable
+    sudo ufw allow 22/tcp
+    sudo ufw allow 80/tcp
+    sudo ufw allow 443/tcp
+    sudo ufw --force enable
 
-cat <<HTML_EOF | sudo tee /var/www/html/index.html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Terraform Deployed Web Server</title>
-</head>
-<body>
-  <h1>Welcome to Nginx on Ubuntu 22.04!</h1>
-  <p>Optimus Capstone - Terraform Deployed AWS Web Server</p>
-  <p>Region: $(curl -s http://169.254.169.254/latest/meta-data/placement/region)</p>
-  <p>Instance ID: $(curl -s http://169.254.169.254/latest/meta-data/instance-id)</p>
-</body>
-</html>
-HTML_EOF
+    cat <<HTML_EOF | sudo tee /var/www/html/index.html
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <title>Terraform Deployed Web Server</title>
+    </head>
+    <body>
+      <h1>Welcome to Nginx on Ubuntu 22.04!</h1>
+      <p>Optimus Capstone - Terraform Deployed AWS Web Server</p>
+      <p>Region: $(curl -s http://169.254.169.254/latest/meta-data/placement/region)</p>
+      <p>Instance ID: $(curl -s http://169.254.169.254/latest/meta-data/instance-id)</p>
+    </body>
+    </html>
+    HTML_EOF
 
-sudo reboot
-EOF
+    sudo reboot
+  EOF
 
   tags = {
     Name        = var.instance_name
@@ -180,57 +183,56 @@ resource "aws_instance" "ftp_s3_sync_server" {
   subnet_id              = aws_subnet.public_subnet.id
   associate_public_ip_address = true
 
-  # User Data: Install AWS CLI, FTP client, cron; set up FTP-to-S3 sync script and cron job
   user_data = <<-EOF
-#!/bin/bash
-set -ex
+    #!/bin/bash
+    set -ex
 
-# Update and install dependencies
-sudo apt-get update -y
-sudo apt-get install -y awscli ftp cron
+    # Install dependencies: AWS CLI, FTP client, cron
+    sudo apt-get update -y
+    sudo apt-get install -y awscli ftp cron
 
-# Create a directory for video files
-mkdir -p /tmp/video_files
+    # Create a directory for video files
+    mkdir -p /tmp/video_files
 
-# Create the FTP-to-S3 sync script
-cat <<'EOL' > /tmp/ftp_to_s3_sync.sh
-#!/bin/bash
+    # Create the FTP-to-S3 sync script
+    cat <<'EOL' > /tmp/ftp_to_s3_sync.sh
+    #!/bin/bash
 
-# FTP Server Credentials - update these with your FTP server details
-FTP_HOST="ftp.example.com"
-FTP_USER="your_ftp_user"
-FTP_PASS="your_ftp_password"
+    # FTP Server Credentials - update these with your FTP server details
+    FTP_HOST="ftp.example.com"
+    FTP_USER="your_ftp_user"
+    FTP_PASS="your_ftp_password"
 
-# Local directory for downloaded files
-LOCAL_DIR="/tmp/video_files"
+    # Local directory to store downloaded files
+    LOCAL_DIR="/tmp/video_files"
 
-# S3 bucket to upload files to - update with your bucket name if needed
-S3_BUCKET="s3://your-bucket-name/"
+    # S3 bucket to upload files to - update this value if needed
+    S3_BUCKET="s3://your-bucket-name/"
 
-# Download files from the FTP server
-ftp -n $FTP_HOST <<END_SCRIPT
-quote USER $FTP_USER
-quote PASS $FTP_PASS
-mget /path/to/videos/* $LOCAL_DIR/
-quit
-END_SCRIPT
+    # Download files from the FTP server
+    ftp -n $FTP_HOST <<END_SCRIPT
+    quote USER $FTP_USER
+    quote PASS $FTP_PASS
+    mget /path/to/videos/* $LOCAL_DIR/
+    quit
+    END_SCRIPT
 
-# Sync the local directory with S3
-aws s3 sync $LOCAL_DIR $S3_BUCKET --acl public-read
+    # Sync the local directory with S3
+    aws s3 sync $LOCAL_DIR $S3_BUCKET --acl public-read
 
-# Clean up local files after upload
-rm -rf $LOCAL_DIR
-EOL
+    # Clean up local files after upload
+    rm -rf $LOCAL_DIR
+    EOL
 
-# Make the sync script executable
-chmod +x /tmp/ftp_to_s3_sync.sh
+    # Make the sync script executable
+    chmod +x /tmp/ftp_to_s3_sync.sh
 
-# Set up a cron job to run the sync script every 5 minutes
-echo "*/5 * * * * /tmp/ftp_to_s3_sync.sh >> /var/log/ftp_to_s3_sync.log 2>&1" | sudo tee -a /etc/crontab
+    # Set up a cron job to run the sync script every 5 minutes
+    echo "*/5 * * * * /tmp/ftp_to_s3_sync.sh >> /var/log/ftp_to_s3_sync.log 2>&1" | sudo tee -a /etc/crontab
 
-# Restart cron service
-sudo service cron restart
-EOF
+    # Restart the cron service to apply changes
+    sudo service cron restart
+  EOF
 
   tags = {
     Name        = "FTP-to-S3-Sync-Server"
@@ -278,49 +280,4 @@ resource "null_resource" "generate_html" {
       echo "</ul></body></html>" >> /usr/share/nginx/html/index.html
     EOF
   }
-}
-
-# Outputs for accessing the instances
-output "nginx_public_ip" {
-  value = aws_instance.web_server.public_ip
-}
-
-output "ftp_s3_sync_server_public_ip" {
-  value = aws_instance.ftp_s3_sync_server.public_ip
-}
-
-####################
-# Variable Definitions
-####################
-variable "ami_id" {
-  description = "AMI to use for the EC2 instances."
-  type        = string
-}
-
-variable "instance_type" {
-  description = "EC2 instance type."
-  type        = string
-  default     = "t2.micro"
-}
-
-variable "instance_name" {
-  description = "Name tag for the Nginx EC2 instance."
-  type        = string
-  default     = "MyNginxServer"
-}
-
-variable "availability_zone" {
-  description = "The availability zone for the subnet."
-  type        = string
-}
-
-variable "bucket_name" {
-  description = "The name of the S3 bucket (if used externally)."
-  type        = string
-}
-
-variable "video_files" {
-  description = "List of video file names to upload."
-  type        = list(string)
-  default     = ["video1.mp4", "video2.mp4", "video3.mp4", "video4.mp4"]
 }
