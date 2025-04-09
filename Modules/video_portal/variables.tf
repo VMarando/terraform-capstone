@@ -30,12 +30,6 @@ variable "availability_zone" {
     default     = "us-east-1a" 
 }
 
-
-variable "bucket_name" {
-  description = "The name of the S3 bucket (if used externally)."
-  type        = string
-}
-
 variable "video_files" {
   description = "List of video file names to upload."
   type        = list(string)
