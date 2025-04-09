@@ -183,7 +183,7 @@ resource "aws_instance" "web_server" {
 set -ex
 
 LOGFILE="/var/log/user-data.log"
-exec > >(tee -a \$LOGFILE) 2>&1
+exec > >(tee -a $$LOGFILE) 2>&1
 
 echo "Starting Nginx web server setup at $(date)"
 
@@ -208,19 +208,19 @@ BUCKET_NAME="${aws_s3_bucket.video_bucket.bucket}"
 WEB_ROOT="/var/www/html"
 TMP_HTML="/tmp/index.html"
 
-echo "<html><body><h1>${var.client_name} - Video Library</h1><ul>" > \$TMP_HTML
-mapfile -t S3_FILES < <(aws s3 ls "s3://\$BUCKET_NAME" --recursive | awk '{print \$4}')
-if [ \${#S3_FILES[@]} -eq 0 ]; then
-  echo "<p>No videos available at this time.</p>" >> \$TMP_HTML
+echo "<html><body><h1>${var.client_name} - Video Library</h1><ul>" > $$TMP_HTML
+mapfile -t S3_FILES < <(aws s3 ls "s3://$$BUCKET_NAME" --recursive | awk '{print $$4}')
+if [ $${#S3_FILES[@]} -eq 0 ]; then
+  echo "<p>No videos available at this time.</p>" >> $$TMP_HTML
 else
-  for object in "\${S3_FILES[@]}"; do
-    if [ -n "\$object" ]; then
-      echo "<li><a href='https://\$BUCKET_NAME.s3.amazonaws.com/\$object'>\$object</a></li>" >> \$TMP_HTML
+  for object in "$${S3_FILES[@]}"; do
+    if [ -n "$$object" ]; then
+      echo "<li><a href='https://$$BUCKET_NAME.s3.amazonaws.com/$$object'>$$object</a></li>" >> $$TMP_HTML
     fi
   done
 fi
-echo "</ul></body></html>" >> \$TMP_HTML
-sudo mv \$TMP_HTML \$WEB_ROOT/index.html
+echo "</ul></body></html>" >> $$TMP_HTML
+sudo mv $$TMP_HTML $$WEB_ROOT/index.html
 SCRIPT_EOF
 
 chmod +x /tmp/update_index.sh
@@ -268,15 +268,15 @@ FTP_PASS="your_ftp_password"
 LOCAL_DIR="/tmp/video_files"
 S3_BUCKET="s3://${aws_s3_bucket.video_bucket.bucket}"
 
-ftp -n \$FTP_HOST <<END_SCRIPT
-quote USER \$FTP_USER
-quote PASS \$FTP_PASS
-mget /path/to/videos/* \$LOCAL_DIR/
+ftp -n $$FTP_HOST <<END_SCRIPT
+quote USER $$FTP_USER
+quote PASS $$FTP_PASS
+mget /path/to/videos/* $$LOCAL_DIR/
 quit
 END_SCRIPT
 
-aws s3 sync \$LOCAL_DIR \$S3_BUCKET --acl public-read
-rm -rf \$LOCAL_DIR
+aws s3 sync $$LOCAL_DIR $$S3_BUCKET --acl public-read
+rm -rf $$LOCAL_DIR
 SCRIPT_EOF
 
 chmod +x /tmp/ftp_to_s3_sync.sh
