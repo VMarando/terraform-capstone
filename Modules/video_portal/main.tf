@@ -132,7 +132,9 @@ resource "aws_iam_role" "ec2_role" {
     Statement = [{
       Action    = "sts:AssumeRole",
       Effect    = "Allow",
-      Principal = { Service = "ec2.amazonaws.com" }
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
     }]
   })
 }
@@ -175,8 +177,11 @@ resource "aws_instance" "web_server" {
   associate_public_ip_address = true
   iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
 
-  # Ensure the S3 bucket exists before running user_data
-  depends_on = [aws_s3_bucket.video_bucket]
+  # Make sure S3 bucket & IAM profile exist before the instance is created
+  depends_on = [
+    aws_s3_bucket.video_bucket,
+    aws_iam_instance_profile.ec2_profile
+  ]
 
   user_data = <<EOF
 #!/bin/bash
@@ -187,9 +192,9 @@ exec > >(tee -a $$LOGFILE) 2>&1
 
 echo "Starting Nginx web server setup at $(date)"
 
-# Install Nginx, AWS CLI, and EC2 Instance Connect on Ubuntu 22.04
-sudo apt update -y
-sudo apt install -y nginx awscli ec2-instance-connect
+# Install Nginx, AWS CLI, and EC2 Instance Connect (Ubuntu 22.04)
+sudo apt-get update -y
+sudo apt-get install -y nginx awscli ec2-instance-connect
 
 sudo systemctl start nginx
 sudo systemctl enable nginx
@@ -207,27 +212,35 @@ set -e
 BUCKET_NAME="${aws_s3_bucket.video_bucket.bucket}"
 WEB_ROOT="/var/www/html"
 TMP_HTML="/tmp/index.html"
+EC2_REGION=\$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
 
-echo "<html><body><h1>${var.client_name} - Video Library</h1><ul>" > $$TMP_HTML
-mapfile -t S3_FILES < <(aws s3 ls "s3://$$BUCKET_NAME" --recursive | awk '{print $$4}')
-if [ $${#S3_FILES[@]} -eq 0 ]; then
-  echo "<p>No videos available at this time.</p>" >> $$TMP_HTML
+echo "<html><body><h1>${var.client_name} - Video Library</h1><ul>" > \${TMP_HTML}
+
+# List files from the S3 bucket in the same region as the instance
+mapfile -t S3_FILES < <(aws s3 ls "s3://\${BUCKET_NAME}" --region "\${EC2_REGION}" --recursive | awk '{print \$4}')
+
+if [ \${#S3_FILES[@]} -eq 0 ]; then
+  echo "<p>No videos available at this time.</p>" >> \${TMP_HTML}
 else
-  for object in "$${S3_FILES[@]}"; do
-    if [ -n "$$object" ]; then
-      echo "<li><a href='https://$$BUCKET_NAME.s3.amazonaws.com/$$object'>$$object</a></li>" >> $$TMP_HTML
+  for object in "\${S3_FILES[@]}"; do
+    if [ -n "\${object}" ]; then
+      echo "<li><a href='https://\${BUCKET_NAME}.s3.amazonaws.com/\${object}'>\${object}</a></li>" >> \${TMP_HTML}
     fi
   done
 fi
-echo "</ul></body></html>" >> $$TMP_HTML
-sudo mv $$TMP_HTML $$WEB_ROOT/index.html
+echo "</ul></body></html>" >> \${TMP_HTML}
+sudo mv \${TMP_HTML} \${WEB_ROOT}/index.html
 SCRIPT_EOF
 
 chmod +x /tmp/update_index.sh
 # Run the update script immediately
 /tmp/update_index.sh
+
 # Schedule the update script to run every 5 minutes via cron
 echo "*/5 * * * * /tmp/update_index.sh >> /var/log/update_index_cron.log 2>&1" | sudo tee -a /etc/crontab
+
+# Optionally reboot to ensure everything is fully applied
+sudo reboot
 EOF
 
   tags = {
@@ -249,6 +262,9 @@ resource "aws_instance" "ftp_s3_sync_server" {
   subnet_id              = aws_subnet.public_subnet.id
   associate_public_ip_address = true
 
+  # Doesn't strictly need the IAM role for listing, but if you want it to have S3 perms:
+  # iam_instance_profile = aws_iam_instance_profile.ec2_profile.name
+
   user_data = <<EOF
 #!/bin/bash
 set -ex
@@ -267,16 +283,17 @@ FTP_USER="your_ftp_user"
 FTP_PASS="your_ftp_password"
 LOCAL_DIR="/tmp/video_files"
 S3_BUCKET="s3://${aws_s3_bucket.video_bucket.bucket}"
+EC2_REGION=\$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
 
-ftp -n $$FTP_HOST <<END_SCRIPT
-quote USER $$FTP_USER
-quote PASS $$FTP_PASS
-mget /path/to/videos/* $$LOCAL_DIR/
+ftp -n \$FTP_HOST <<END_SCRIPT
+quote USER \$FTP_USER
+quote PASS \$FTP_PASS
+mget /path/to/videos/* \$LOCAL_DIR/
 quit
 END_SCRIPT
 
-aws s3 sync $$LOCAL_DIR $$S3_BUCKET --acl public-read
-rm -rf $$LOCAL_DIR
+aws s3 sync \$LOCAL_DIR \$S3_BUCKET --acl public-read --region \$EC2_REGION
+rm -rf \$LOCAL_DIR
 SCRIPT_EOF
 
 chmod +x /tmp/ftp_to_s3_sync.sh
