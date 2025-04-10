@@ -1,5 +1,5 @@
 ############################################################
-# Terraform: Video Upload & Display Example (EC2-based, Static Homepage)
+# Terraform: Video Upload & Display Example (EC2-based, PRIVATE Bucket)
 ############################################################
 
 terraform {
@@ -18,6 +18,7 @@ provider "aws" {
 ############################################################
 # 1. Generate SSH Key Pair & Random ID
 ############################################################
+
 resource "tls_private_key" "new_key" {
   algorithm = "RSA"
   rsa_bits  = 2048
@@ -30,6 +31,7 @@ resource "random_id" "common_id" {
 ############################################################
 # 2. AWS Key Pair and Local Private Key
 ############################################################
+
 resource "aws_key_pair" "deployer" {
   key_name   = "my-nginx-key-${random_id.common_id.hex}"
   public_key = tls_private_key.new_key.public_key_openssh
@@ -45,6 +47,7 @@ resource "local_file" "private_key" {
 ############################################################
 # 3. Networking: VPC, IGW, Subnet, Route Table
 ############################################################
+
 resource "aws_vpc" "main_vpc" {
   cidr_block = "10.0.0.0/16"
   tags = {
@@ -71,6 +74,7 @@ resource "aws_subnet" "public_subnet" {
 
 resource "aws_route_table" "public_rt" {
   vpc_id = aws_vpc.main_vpc.id
+
   route {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.igw.id
@@ -88,6 +92,7 @@ resource "aws_route_table_association" "public_rt_assoc" {
 ############################################################
 # 4. Security Group: Allow SSH, HTTP, HTTPS
 ############################################################
+
 resource "aws_security_group" "web_sg" {
   name        = "web_sg-${random_id.common_id.hex}"
   description = "Allow SSH (22), HTTP (80), and HTTPS (443)"
@@ -120,8 +125,9 @@ resource "aws_security_group" "web_sg" {
 }
 
 ############################################################
-# 5. S3 Bucket for Video Storage (Private, if needed for other parts)
+# 5. S3 Bucket for Video Storage (PRIVATE)
 ############################################################
+
 resource "aws_s3_bucket" "video_bucket" {
   bucket = "video-bucket-${random_id.common_id.hex}"
   tags = {
@@ -129,9 +135,12 @@ resource "aws_s3_bucket" "video_bucket" {
   }
 }
 
+# (No public ACL or bucket policy, so the bucket remains private)
+
 ############################################################
 # 6. IAM Role & Instance Profile (For EC2 -> S3 Access)
 ############################################################
+
 resource "aws_iam_role" "ec2_role" {
   name = "ec2_video_role-${random_id.common_id.hex}"
   assume_role_policy = jsonencode({
@@ -154,7 +163,8 @@ resource "aws_iam_role_policy" "ec2_s3_policy" {
       Effect = "Allow",
       Action = [
         "s3:ListBucket",
-        "s3:GetObject"
+        "s3:GetObject",
+        "s3:PutObject"  // needed for FTP sync to upload files
       ],
       Resource = [
         aws_s3_bucket.video_bucket.arn,
@@ -170,8 +180,9 @@ resource "aws_iam_instance_profile" "ec2_profile" {
 }
 
 ############################################################
-# 7. EC2 Instance: Nginx Web Server (Static Homepage)
+# 7. EC2 Instance: Nginx Web Server (Dynamic File Listing)
 ############################################################
+
 resource "aws_instance" "web_server" {
   ami                         = var.ami_id
   instance_type               = var.instance_type
@@ -190,25 +201,24 @@ resource "aws_instance" "web_server" {
 #!/bin/bash
 set -ex
 
-# Update and install necessary packages (Nginx, awscli, EC2 instance connect)
+# Update and install required packages
 sudo apt-get update -y
 sudo apt-get install -y nginx awscli ec2-instance-connect
 
-# Start and enable Nginx
 sudo systemctl start nginx
 sudo systemctl enable nginx
 sudo systemctl restart ssh
 
-# (Optional) Configure firewall
+# (Optional) Configure UFW
 sudo ufw allow 22/tcp
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
 sudo ufw --force enable
 
-# Create the videos directory if it doesn't exist
+# Create the local directory for videos
 sudo mkdir -p /var/www/html/videos
 
-# Create a dynamic HTML index script that lists files from /var/www/html/videos
+# Write out and run a dynamic index generation script
 cat <<'DYNAMIC_EOF' > /tmp/update_index.sh
 #!/bin/bash
 set -e
@@ -216,48 +226,48 @@ set -e
 LOCAL_DIR="/var/www/html/videos"
 TMP_HTML="/tmp/index.html"
 
-# 1) Gather file names (ensure the directory exists)
+# Ensure the videos directory exists
 mkdir -p "$LOCAL_DIR"
-FILES=$(ls -1 "$LOCAL_DIR")
 
-# 2) Start the HTML with a header (using a static title; you can use Terraform variables if needed)
+# Sync contents from the private S3 bucket into the local videos folder
+aws s3 sync s3://${aws_s3_bucket.video_bucket.bucket} "$LOCAL_DIR" --region $(curl -s http://169.254.169.254/latest/meta-data/placement/region)
+
+# Begin generating the HTML
 cat <<HTML_START > "$TMP_HTML"
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>My Private Video Library</title>
+  <title>${var.client_name} - Video Library</title>
 </head>
 <body>
-  <h1>My Private Video Library</h1>
+  <h1>${var.client_name} - Video Library</h1>
   <ul>
 HTML_START
 
-# 3) Insert <li> entries for each file
-if [ -z "$FILES" ]; then
+FILES=\$(ls -1 "$LOCAL_DIR")
+if [ -z "\$FILES" ]; then
   echo "    <p>No videos available at this time.</p>" >> "$TMP_HTML"
 else
-  for object in $FILES; do
-    echo "    <li><a href='/videos/$object'>$object</a></li>" >> "$TMP_HTML"
+  for object in \$FILES; do
+    echo "    <li><a href='/videos/\$object'>\$object</a></li>" >> "$TMP_HTML"
   done
 fi
 
-# 4) Close the HTML
 cat <<HTML_END >> "$TMP_HTML"
   </ul>
 </body>
 </html>
 HTML_END
 
-# 5) Move the generated HTML to the web server root for Nginx to serve
 sudo mv "$TMP_HTML" /var/www/html/index.html
 DYNAMIC_EOF
 
-# Make the dynamic index script executable and run it once at boot
 chmod +x /tmp/update_index.sh
+# Run the script immediately
 /tmp/update_index.sh
 
-# Optionally, schedule the dynamic index script to run every 5 minutes (if files change later)
+# Schedule the dynamic index update every 5 minutes
 echo "*/5 * * * * /tmp/update_index.sh >> /var/log/update_index_cron.log 2>&1" | sudo tee -a /etc/crontab
 EOF
 
@@ -269,56 +279,67 @@ EOF
 }
 
 ############################################################
-# 8. EC2 Instance: FTP-to-S3 Sync Server (Optional)
+# 8. AWS Transfer Family SFTP Server (Managed FTP Service)
 ############################################################
-resource "aws_instance" "ftp_s3_sync_server" {
-  ami                         = var.ami_id
-  instance_type               = var.instance_type
-  key_name                    = aws_key_pair.deployer.key_name
-  vpc_security_group_ids      = [aws_security_group.web_sg.id]
-  subnet_id                   = aws_subnet.public_subnet.id
-  associate_public_ip_address = true
 
-  user_data = <<EOF
-#!/bin/bash
-set -ex
+# IAM Role for Transfer Family
+resource "aws_iam_role" "transfer_role" {
+  name = "transfer_role-${random_id.common_id.hex}"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [{
+      Action    = "sts:AssumeRole",
+      Effect    = "Allow",
+      Principal = { Service = "transfer.amazonaws.com" }
+    }]
+  })
+}
 
-sudo apt-get update -y
-sudo apt-get install -y awscli ftp cron
+# IAM Policy for Transfer Family role to access S3 bucket (list, get, put)
+resource "aws_iam_role_policy" "transfer_policy" {
+  name = "transfer_policy-${random_id.common_id.hex}"
+  role = aws_iam_role.transfer_role.id
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Sid: "AllowS3Access",
+        Effect: "Allow",
+        Action: [
+          "s3:ListBucket",
+          "s3:GetObject",
+          "s3:PutObject"
+        ],
+        Resource: [
+          aws_s3_bucket.video_bucket.arn,
+          "${aws_s3_bucket.video_bucket.arn}/*"
+        ]
+      }
+    ]
+  })
+}
 
-mkdir -p /tmp/video_files
-
-cat <<'SCRIPT_EOF' > /tmp/ftp_to_s3_sync.sh
-#!/bin/bash
-set -e
-
-FTP_HOST="ftp.example.com"
-FTP_USER="your_ftp_user"
-FTP_PASS="your_ftp_password"
-LOCAL_DIR="/tmp/video_files"
-S3_BUCKET="s3://${aws_s3_bucket.video_bucket.bucket}"
-EC2_REGION=`curl -s http://169.254.169.254/latest/meta-data/placement/region`
-
-ftp -n $${FTP_HOST} <<END_SCRIPT
-quote USER $${FTP_USER}
-quote PASS $${FTP_PASS}
-mget /path/to/videos/* $${LOCAL_DIR}/
-quit
-END_SCRIPT
-
-aws s3 sync $${LOCAL_DIR} $${S3_BUCKET} --region $${EC2_REGION}
-rm -rf $${LOCAL_DIR}
-SCRIPT_EOF
-
-chmod +x /tmp/ftp_to_s3_sync.sh
-
-echo "*/5 * * * * /tmp/ftp_to_s3_sync.sh >> /var/log/ftp_to_s3_sync.log 2>&1" | sudo tee -a /etc/crontab
-sudo service cron restart
-EOF
+# Create the AWS Transfer Family Server for SFTP
+resource "aws_transfer_server" "sftp_server" {
+  identity_provider_type = "SERVICE_MANAGED"  # AWS manages identity for this example
+  endpoint_type          = "PUBLIC"
+  protocols              = ["SFTP"]
 
   tags = {
-    Name        = "FTP-to-S3-Sync-${random_id.common_id.hex}"
-    Environment = "Production"
-    DeployedBy  = "Terraform"
+    Name = "SFTP-Server-${random_id.common_id.hex}"
+  }
+}
+
+# Create a Transfer Family User
+resource "aws_transfer_user" "sftp_user" {
+  server_id   = aws_transfer_server.sftp_server.id
+  user_name   = var.ftp_user  # using the same variable as before
+  role        = aws_iam_role.transfer_role.arn
+
+  # Set the home directory to your bucket. This will map SFTP user home to your S3 bucket's root.
+  home_directory = "/${aws_s3_bucket.video_bucket.bucket}"
+
+  tags = {
+    Name = "SFTP-User-${random_id.common_id.hex}"
   }
 }
