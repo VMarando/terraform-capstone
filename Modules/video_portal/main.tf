@@ -190,17 +190,75 @@ resource "aws_instance" "web_server" {
 #!/bin/bash
 set -ex
 
-# Update and install Nginx
+# Update and install necessary packages (Nginx, awscli, EC2 instance connect)
 sudo apt-get update -y
-sudo apt-get install -y nginx
+sudo apt-get install -y nginx awscli ec2-instance-connect
 
+# Start and enable Nginx
 sudo systemctl start nginx
 sudo systemctl enable nginx
+sudo systemctl restart ssh
 
-# Overwrite the default index with our static homepage
-cat <<'HTML_EOF' | sudo tee /var/www/html/index.html
-${file("${path.module}/index.html")}
-HTML_EOF
+# (Optional) Configure firewall
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw --force enable
+
+# Create the videos directory if it doesn't exist
+sudo mkdir -p /var/www/html/videos
+
+# Create a dynamic HTML index script that lists files from /var/www/html/videos
+cat <<'DYNAMIC_EOF' > /tmp/update_index.sh
+#!/bin/bash
+set -e
+
+LOCAL_DIR="/var/www/html/videos"
+TMP_HTML="/tmp/index.html"
+
+# 1) Gather file names (ensure the directory exists)
+mkdir -p "$LOCAL_DIR"
+FILES=$(ls -1 "$LOCAL_DIR")
+
+# 2) Start the HTML with a header (using a static title; you can use Terraform variables if needed)
+cat <<HTML_START > "$TMP_HTML"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>My Private Video Library</title>
+</head>
+<body>
+  <h1>My Private Video Library</h1>
+  <ul>
+HTML_START
+
+# 3) Insert <li> entries for each file
+if [ -z "$FILES" ]; then
+  echo "    <p>No videos available at this time.</p>" >> "$TMP_HTML"
+else
+  for object in $FILES; do
+    echo "    <li><a href='/videos/$object'>$object</a></li>" >> "$TMP_HTML"
+  done
+fi
+
+# 4) Close the HTML
+cat <<HTML_END >> "$TMP_HTML"
+  </ul>
+</body>
+</html>
+HTML_END
+
+# 5) Move the generated HTML to the web server root for Nginx to serve
+sudo mv "$TMP_HTML" /var/www/html/index.html
+DYNAMIC_EOF
+
+# Make the dynamic index script executable and run it once at boot
+chmod +x /tmp/update_index.sh
+/tmp/update_index.sh
+
+# Optionally, schedule the dynamic index script to run every 5 minutes (if files change later)
+echo "*/5 * * * * /tmp/update_index.sh >> /var/log/update_index_cron.log 2>&1" | sudo tee -a /etc/crontab
 EOF
 
   tags = {
