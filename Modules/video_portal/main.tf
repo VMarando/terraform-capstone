@@ -220,89 +220,61 @@ resource "aws_iam_instance_profile" "ec2_profile" {
 # 7. EC2 Instance: Nginx Web Server (Dynamic PRIVATE Setup)
 ############################################################
 resource "aws_instance" "web_server" {
-  ami                    = var.ami_id
-  instance_type          = var.instance_type
-  key_name               = aws_key_pair.deployer.key_name
-  vpc_security_group_ids = [aws_security_group.web_sg.id]
-  subnet_id              = aws_subnet.public_subnet.id
-  associate_public_ip_address = true
-  iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
+  # ... other settings like ami, instance_type, etc.
 
-  # We depend on the private S3 bucket existing
-  depends_on = [
-    aws_s3_bucket.video_bucket,
-    aws_iam_instance_profile.ec2_profile
-  ]
-
-  # We'll copy objects locally and serve them
   user_data = <<EOF
 #!/bin/bash
 set -ex
 
-LOGFILE="/var/log/user-data.log"
-exec > >(tee -a $${LOGFILE}) 2>&1
-
-echo "Starting Nginx setup at $$(date)"
-
-sudo apt-get update -y
-sudo apt-get install -y nginx awscli ec2-instance-connect
-
-sudo systemctl start nginx
-sudo systemctl enable nginx
-sudo systemctl restart ssh
-
-# (Optional) UFW
-sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw --force enable
-
-# Create the update script to sync S3 -> local, then build index.html
-cat <<'SCRIPT_EOF' > /tmp/update_index.sh
+# Write your separate script into /tmp/update_index.sh
+cat <<'INNER_SCRIPT' > /tmp/update_index.sh
 #!/bin/bash
 set -e
 
-BUCKET_NAME="${aws_s3_bucket.video_bucket.bucket}"
 LOCAL_DIR="/var/www/html/videos"
 TMP_HTML="/tmp/index.html"
-EC2_REGION=$$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
 
-# 1) Sync the bucket contents to local
-mkdir -p $${LOCAL_DIR}
-aws s3 sync s3://$${BUCKET_NAME} $${LOCAL_DIR} --region $${EC2_REGION}
+# 1) Gather file names
+FILES=$(ls -1 "$LOCAL_DIR")
 
-cat <<HTML_EOF | sudo tee /var/www/html/index.html
+# 2) Start the HTML
+cat <<HTML_START > "$TMP_HTML"
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>${var.client_name} - Video Library</title>
+  <meta charset="UTF-8">
+  <title>My Private Video Library</title>
 </head>
 <body>
-  FILES=$$(ls -1 $${LOCAL_DIR})
-  if [ -z "$$FILES" ]; then
-    echo "<p>No videos available at this time.</p>" >> $${TMP_HTML}
-  else
-    for object in $$FILES; do
-      # for each file, reference /videos/<filename>
-      echo "<li><a href='/videos/$${object}'>$${object}</a></li>" >> $${TMP_HTML}
-    done
-  fi
+  <h1>Video Library</h1>
+  <ul>
+HTML_START
+
+# 3) Insert <li> entries
+if [ -z "$FILES" ]; then
+  echo "  <p>No videos available at this time.</p>" >> "$TMP_HTML"
+else
+  for object in $FILES; do
+    echo "  <li><a href='/videos/$object'>$object</a></li>" >> "$TMP_HTML"
+  done
+fi
+
+# 4) Close the HTML
+cat <<HTML_END >> "$TMP_HTML"
+  </ul>
 </body>
 </html>
-HTML_EOF
+HTML_END
 
-mv $${TMP_HTML} /var/www/html/index.html
-SCRIPT_EOF
+# 5) Move to final location
+mv "$TMP_HTML" /var/www/html/index.html
+INNER_SCRIPT
 
 chmod +x /tmp/update_index.sh
-
-# Run once now
 /tmp/update_index.sh
-
-# Cron re-run every 5 minutes (pull updates from S3 if new files appear)
-echo "*/5 * * * * /tmp/update_index.sh >> /var/log/update_index_cron.log 2>&1" | sudo tee -a /etc/crontab
 EOF
+}
+
 
   tags = {
     Name        = "Nginx-WebServer-${random_id.common_id.hex}"
