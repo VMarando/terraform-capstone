@@ -230,7 +230,7 @@ TMP_HTML="/tmp/index.html"
 mkdir -p "$LOCAL_DIR"
 
 # Sync contents from the private S3 bucket into the local videos folder
-aws s3 sync s3://${aws_s3_bucket.video_bucket.bucket} "$LOCAL_DIR" --region $(curl -s http://169.254.169.254/latest/meta-data/placement/region)
+aws s3 sync s3://${aws_s3_bucket.video_bucket.bucket} "$LOCAL_DIR" --region `curl -s http://169.254.169.254/latest/meta-data/placement/region`
 
 # Begin generating the HTML
 cat <<HTML_START > "$TMP_HTML"
