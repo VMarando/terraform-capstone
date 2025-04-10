@@ -1,6 +1,7 @@
-###########################################
-# Provider & Basic Setup
-###########################################
+##########################################################
+# main.tf
+##########################################################
+
 terraform {
   required_providers {
     aws = {
@@ -8,41 +9,50 @@ terraform {
       version = "~> 4.0"
     }
   }
-  # If using local state or workspaces, configure here
-  # For example, if you're using Terraform Cloud, remove backend config or set it up as needed
+  required_version = ">= 1.0.0"
 }
 
+# AWS Provider
 provider "aws" {
   region  = var.aws_region
+  profile = var.aws_profile
 }
 
-###########################################
-# Random Suffix for Uniqueness
-###########################################
+# Random suffix for uniqueness
 resource "random_id" "suffix" {
   byte_length = 4
 }
 
-###########################################
-# 1. S3 Bucket with Static Website
-###########################################
-# This bucket will serve as a simple file listing
-# and store any uploaded videos from FTP.
+#############################################
+# 1. S3 Bucket for Videos
+#############################################
 
 resource "aws_s3_bucket" "videos" {
-  # unique name = videos-<random>
-  bucket = "videos-${random_id.suffix.hex}"
-  acl    = "public-read"
+  bucket = "videos-${random_id.suffix.hex}" 
+  # Omit 'acl' and 'website' block to avoid deprecation warnings
+}
 
-  # Enable static website hosting
-  website {
-    index_document = "index.html"
-    error_document = "error.html"
+# Separate ACL resource to set 'public-read' if you want a public website
+resource "aws_s3_bucket_acl" "videos_acl" {
+  bucket = aws_s3_bucket.videos.id
+  acl    = "public-read"
+}
+
+# Configure static website hosting
+resource "aws_s3_bucket_website_configuration" "videos_website" {
+  bucket = aws_s3_bucket.videos.id
+
+  index_document {
+    suffix = "index.html"
+  }
+
+  error_document {
+    key = "error.html"
   }
 }
 
-# For a public static website, we need to allow public read of objects.
-resource "aws_s3_bucket_public_access_block" "videos" {
+# Allow public GET access to the objects
+resource "aws_s3_bucket_public_access_block" "videos_access_block" {
   bucket = aws_s3_bucket.videos.id
   block_public_acls   = false
   block_public_policy = false
@@ -50,14 +60,12 @@ resource "aws_s3_bucket_public_access_block" "videos" {
   restrict_public_buckets = false
 }
 
-# Bucket policy to allow public GET for all objects
-resource "aws_s3_bucket_policy" "videos" {
+resource "aws_s3_bucket_policy" "videos_policy" {
   bucket = aws_s3_bucket.videos.id
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
       {
-        Sid       = "PublicReadGetObject",
         Effect    = "Allow",
         Principal = "*",
         Action    = "s3:GetObject",
@@ -67,9 +75,10 @@ resource "aws_s3_bucket_policy" "videos" {
   })
 }
 
-###########################################
-# 2. IAM Role & Policy for Lambda
-###########################################
+#############################################
+# 2. Lambda IAM Role & Policy
+#############################################
+
 resource "aws_iam_role" "lambda_exec" {
   name = "ftp-sync-lambda-${random_id.suffix.hex}"
   assume_role_policy = jsonencode({
@@ -82,15 +91,13 @@ resource "aws_iam_role" "lambda_exec" {
   })
 }
 
-# Grant Lambda permission to write logs and access S3
 resource "aws_iam_role_policy" "lambda_exec_policy" {
   name = "ftp-sync-lambda-policy-${random_id.suffix.hex}"
   role = aws_iam_role.lambda_exec.id
-
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
-      # Allow writing CloudWatch logs
+      # CloudWatch logs
       {
         Effect   = "Allow",
         Action   = [
@@ -100,7 +107,7 @@ resource "aws_iam_role_policy" "lambda_exec_policy" {
         ],
         Resource = "*"
       },
-      # Allow uploading + listing objects in our S3 bucket
+      # S3 access to our specific bucket
       {
         Effect = "Allow",
         Action = [
@@ -117,10 +124,11 @@ resource "aws_iam_role_policy" "lambda_exec_policy" {
   })
 }
 
-###########################################
-# 3. Package & Deploy the Lambda Function
-###########################################
-# We'll zip our Python code from local directory "lambda_code"
+#############################################
+# 3. Lambda Function & Archive
+#############################################
+
+# Archive the local folder with your Python code, e.g. 'lambda_code'
 data "archive_file" "lambda_zip" {
   type        = "zip"
   source_dir  = "${path.module}/lambda_code"
@@ -129,7 +137,6 @@ data "archive_file" "lambda_zip" {
 
 resource "aws_lambda_function" "ftp_sync" {
   function_name = "ftp-sync-${random_id.suffix.hex}"
-  description   = "Periodically downloads videos from FTP into S3"
   runtime       = "python3.9"
   handler       = "lambda_function.lambda_handler"
   role          = aws_iam_role.lambda_exec.arn
@@ -137,10 +144,9 @@ resource "aws_lambda_function" "ftp_sync" {
   filename            = data.archive_file.lambda_zip.output_path
   source_code_hash    = data.archive_file.lambda_zip.output_base64sha256
   publish             = true
-  timeout             = 300  # seconds (5min). Increase for bigger files
-  memory_size         = 512  # MB. Adjust if you expect bigger downloads
+  timeout             = 300
+  memory_size         = 512
 
-  # Environment variables for FTP info & bucket name
   environment {
     variables = {
       FTP_HOST    = var.ftp_host
@@ -151,12 +157,12 @@ resource "aws_lambda_function" "ftp_sync" {
   }
 }
 
-###########################################
-# 4. EventBridge Rule to Schedule the Lambda
-###########################################
+#############################################
+# 4. EventBridge (CloudWatch) Schedule
+#############################################
+
 resource "aws_cloudwatch_event_rule" "ftp_sync_rule" {
   name                = "ftp-sync-schedule-${random_id.suffix.hex}"
-  description         = "Triggers the ftp_sync lambda on a schedule"
   schedule_expression = var.schedule_expression
 }
 
@@ -174,11 +180,10 @@ resource "aws_lambda_permission" "allow_eventbridge_invoke" {
   source_arn    = aws_cloudwatch_event_rule.ftp_sync_rule.arn
 }
 
-###########################################
-# 5. (Optional) Upload a Starter Index Page
-###########################################
-# You can skip this if your Lambda or user manually uploads an index.html
-# for demonstration, let's just put a simple "Hello, upload is not done yet" page
+#############################################
+# 5. Example: Upload a Placeholder index.html
+#############################################
+
 resource "null_resource" "upload_index" {
   provisioner "local-exec" {
     command = <<EOC
@@ -187,13 +192,17 @@ aws s3 cp index.html s3://${aws_s3_bucket.videos.bucket}/index.html --acl public
 rm -f index.html
 EOC
   }
-  depends_on = [aws_s3_bucket.videos, aws_s3_bucket_public_access_block.videos]
+  depends_on = [
+    aws_s3_bucket.videos,
+    aws_s3_bucket_acl.videos_acl,
+    aws_s3_bucket_website_configuration.videos_website
+  ]
 }
 
-###########################################
-# 6. Output S3 Website Endpoint
-###########################################
+#############################################
+# 6. Output: Website Domain
+#############################################
 output "s3_website_url" {
-  description = "Public URL for the S3 static website"
-  value       = aws_s3_bucket.videos.website_endpoint
+  description = "HTTP endpoint for the S3 static site"
+  value       = "http://${aws_s3_bucket_website_configuration.videos_website.website_domain}"
 }
