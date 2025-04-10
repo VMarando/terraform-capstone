@@ -41,3 +41,15 @@ variable "client_name" {
   type        = string
   default     = "Insert Client Name Here"
 }
+
+variable "ftp_user" {
+  description = "Base FTP user name for AWS Transfer Family."
+  type        = string
+  default     = "myftpuser"
+}
+
+variable "ftp_password" {
+  description = "FTP password for AWS Transfer Family user."
+  type        = string
+  default     = "myftppassword"
+}

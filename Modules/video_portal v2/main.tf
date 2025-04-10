@@ -332,13 +332,11 @@ resource "aws_transfer_server" "sftp_server" {
 
 # Create a Transfer Family User
 resource "aws_transfer_user" "sftp_user" {
-  server_id   = aws_transfer_server.sftp_server.id
-  user_name   = var.ftp_user  # using the same variable as before
-  role        = aws_iam_role.transfer_role.arn
-
-  # Set the home directory to your bucket. This will map SFTP user home to your S3 bucket's root.
+  server_id      = aws_transfer_server.sftp_server.id
+  user_name      = "${var.ftp_user}-${random_id.common_id.hex}"
+  role           = aws_iam_role.transfer_role.arn
   home_directory = "/${aws_s3_bucket.video_bucket.bucket}"
-
+  
   tags = {
     Name = "SFTP-User-${random_id.common_id.hex}"
   }
