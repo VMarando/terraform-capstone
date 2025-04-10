@@ -1,6 +1,7 @@
 ############################################################
-# Terraform: Video Upload & Display Example (EC2-based), PRIVATE Bucket
+# Terraform: Video Upload & Display Example (EC2-based, Static Homepage)
 ############################################################
+
 terraform {
   required_providers {
     aws = {
@@ -63,7 +64,6 @@ resource "aws_subnet" "public_subnet" {
   cidr_block              = "10.0.1.0/24"
   map_public_ip_on_launch = true
   availability_zone       = var.availability_zone
-
   tags = {
     Name = "Public-Subnet-${random_id.common_id.hex}"
   }
@@ -71,12 +71,10 @@ resource "aws_subnet" "public_subnet" {
 
 resource "aws_route_table" "public_rt" {
   vpc_id = aws_vpc.main_vpc.id
-
   route {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.igw.id
   }
-
   tags = {
     Name = "Public-RT-${random_id.common_id.hex}"
   }
@@ -113,7 +111,6 @@ resource "aws_security_group" "web_sg" {
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
-
   egress {
     from_port   = 0
     to_port     = 0
@@ -123,7 +120,7 @@ resource "aws_security_group" "web_sg" {
 }
 
 ############################################################
-# 5. S3 Bucket for Video Storage (PRIVATE)
+# 5. S3 Bucket for Video Storage (Private, if needed for other parts)
 ############################################################
 resource "aws_s3_bucket" "video_bucket" {
   bucket = "video-bucket-${random_id.common_id.hex}"
@@ -132,43 +129,6 @@ resource "aws_s3_bucket" "video_bucket" {
   }
 }
 
-/*
-# If your account forcibly sets 'block public access', that's fine. 
-# We'll keep the bucket fully private. We can remove or comment out
-# the public ACL/policy resources:
-
-# resource "aws_s3_bucket_acl" "public_acl" {
-#   bucket = aws_s3_bucket.video_bucket.id
-#   acl    = "public-read"
-# }
-
-# resource "aws_s3_bucket_policy" "bucket_policy" {
-#   bucket = aws_s3_bucket.video_bucket.id
-#   policy = jsonencode({
-#     Version = "2012-10-17",
-#     Statement = [
-#       {
-#         Sid       = "PublicReadGetObject",
-#         Effect    = "Allow",
-#         Principal = "*",
-#         Action    = "s3:GetObject",
-#         Resource  = "${aws_s3_bucket.video_bucket.arn}/*"
-#       }
-#     ]
-#   })
-# }
-
-# resource "aws_s3_bucket_public_access_block" "pab" {
-#   bucket = aws_s3_bucket.video_bucket.id
-#   block_public_acls   = false
-#   block_public_policy = false
-#   ignore_public_acls  = false
-#   restrict_public_buckets = false
-# }
-
-# With everything commented out, the bucket remains private.
-*/
-
 ############################################################
 # 6. IAM Role & Instance Profile (For EC2 -> S3 Access)
 ############################################################
@@ -176,38 +136,31 @@ resource "aws_iam_role" "ec2_role" {
   name = "ec2_video_role-${random_id.common_id.hex}"
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
-    Statement = [
-      {
-        Action    = "sts:AssumeRole",
-        Effect    = "Allow",
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-      }
-    ]
+    Statement = [{
+      Action    = "sts:AssumeRole",
+      Effect    = "Allow",
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
   })
 }
 
 resource "aws_iam_role_policy" "ec2_s3_policy" {
   name = "ec2_s3_policy-${random_id.common_id.hex}"
   role = aws_iam_role.ec2_role.id
-
   policy = jsonencode({
     Version = "2012-10-17",
-    Statement = [
-      {
-        Sid    = "AllowS3ListAndGet",
-        Effect = "Allow",
-        Action = [
-          "s3:ListBucket",
-          "s3:GetObject"
-        ],
-        Resource = [
-          aws_s3_bucket.video_bucket.arn,
-          "${aws_s3_bucket.video_bucket.arn}/*"
-        ]
-      }
-    ]
+    Statement = [{
+      Sid    = "AllowS3ListAndGet",
+      Effect = "Allow",
+      Action = [
+        "s3:ListBucket",
+        "s3:GetObject"
+      ],
+      Resource = [
+        aws_s3_bucket.video_bucket.arn,
+        "${aws_s3_bucket.video_bucket.arn}/*"
+      ]
+    }]
   })
 }
 
@@ -217,78 +170,55 @@ resource "aws_iam_instance_profile" "ec2_profile" {
 }
 
 ############################################################
-# 7. EC2 Instance: Nginx Web Server (Dynamic PRIVATE Setup)
+# 7. EC2 Instance: Nginx Web Server (Static Homepage)
 ############################################################
 resource "aws_instance" "web_server" {
-  ami                    = var.ami_id
-  instance_type          = var.instance_type
-  key_name               = aws_key_pair.deployer.key_name
-  vpc_security_group_ids = [aws_security_group.web_sg.id]
-  subnet_id              = aws_subnet.public_subnet.id
-  associate_public_ip_address = true  # ✅ Ensures instance gets a Public IP
-  
+  ami                         = var.ami_id
+  instance_type               = var.instance_type
+  key_name                    = aws_key_pair.deployer.key_name
+  vpc_security_group_ids      = [aws_security_group.web_sg.id]
+  subnet_id                   = aws_subnet.public_subnet.id
+  associate_public_ip_address = true
+  iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
+
+  depends_on = [
+    aws_s3_bucket.video_bucket,
+    aws_iam_instance_profile.ec2_profile
+  ]
+
   user_data = <<EOF
 #!/bin/bash
 set -ex
 
-# Write your separate script into /tmp/update_index.sh
-cat <<'INNER_SCRIPT' > /tmp/update_index.sh
-#!/bin/bash
-set -e
+# Update and install Nginx
+sudo apt-get update -y
+sudo apt-get install -y nginx
 
-LOCAL_DIR="/var/www/html/videos"
-TMP_HTML="/tmp/index.html"
+sudo systemctl start nginx
+sudo systemctl enable nginx
 
-# 1) Gather file names
-FILES=$(ls -1 "$LOCAL_DIR")
-
-# 2) Start the HTML
-cat <<HTML_START > "$TMP_HTML"
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>My Private Video Library</title>
-</head>
-<body>
-  <h1>Video Library</h1>
-  <ul>
-HTML_START
-
-# 3) Insert <li> entries
-if [ -z "$FILES" ]; then
-  echo "  <p>No videos available at this time.</p>" >> "$TMP_HTML"
-else
-  for object in $FILES; do
-    echo "  <li><a href='/videos/$object'>$object</a></li>" >> "$TMP_HTML"
-  done
-fi
-
-# 4) Close the HTML
-cat <<HTML_END >> "$TMP_HTML"
-  </ul>
-</body>
-</html>
-HTML_END
-
-# 5) Move to final location
-mv "$TMP_HTML" /var/www/html/index.html
-INNER_SCRIPT
-
-chmod +x /tmp/update_index.sh
-/tmp/update_index.sh
+# Overwrite the default index with our static homepage
+cat <<'HTML_EOF' | sudo tee /var/www/html/index.html
+${file("${path.module}/index.html")}
+HTML_EOF
 EOF
+
+  tags = {
+    Name        = "Nginx-WebServer-${random_id.common_id.hex}"
+    Environment = "Production"
+    DeployedBy  = "Terraform"
+  }
 }
 
 ############################################################
-# 8. EC2 Instance: FTP-to-S3 Sync Server
+# 8. EC2 Instance: FTP-to-S3 Sync Server (Optional)
 ############################################################
 resource "aws_instance" "ftp_s3_sync_server" {
-  ami                    = var.ami_id
-  instance_type          = var.instance_type
-  key_name               = aws_key_pair.deployer.key_name
-  vpc_security_group_ids = [aws_security_group.web_sg.id]
-  subnet_id              = aws_subnet.public_subnet.id
+  ami                         = var.ami_id
+  instance_type               = var.instance_type
+  key_name                    = aws_key_pair.deployer.key_name
+  vpc_security_group_ids      = [aws_security_group.web_sg.id]
+  subnet_id                   = aws_subnet.public_subnet.id
   associate_public_ip_address = true
 
   user_data = <<EOF
@@ -309,9 +239,8 @@ FTP_USER="your_ftp_user"
 FTP_PASS="your_ftp_password"
 LOCAL_DIR="/tmp/video_files"
 S3_BUCKET="s3://${aws_s3_bucket.video_bucket.bucket}"
-EC2_REGION=$$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
+EC2_REGION=`curl -s http://169.254.169.254/latest/meta-data/placement/region`
 
-# Fetch files from FTP
 ftp -n $${FTP_HOST} <<END_SCRIPT
 quote USER $${FTP_USER}
 quote PASS $${FTP_PASS}
@@ -319,7 +248,6 @@ mget /path/to/videos/* $${LOCAL_DIR}/
 quit
 END_SCRIPT
 
-# Sync them to S3 (no public-read ACL needed now, it's private)
 aws s3 sync $${LOCAL_DIR} $${S3_BUCKET} --region $${EC2_REGION}
 rm -rf $${LOCAL_DIR}
 SCRIPT_EOF
