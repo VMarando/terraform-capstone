@@ -275,14 +275,6 @@ chmod +x /tmp/update_index.sh
 EOF
 }
 
-
-  tags = {
-    Name        = "Nginx-WebServer-${random_id.common_id.hex}"
-    Environment = "Production"
-    DeployedBy  = "Terraform"
-  }
-}
-
 ############################################################
 # 8. EC2 Instance: FTP-to-S3 Sync Server
 ############################################################
