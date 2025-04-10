@@ -246,11 +246,11 @@ cat <<HTML_START > "$TMP_HTML"
 HTML_START
 
 FILES=`ls -1 "$LOCAL_DIR"`
-if [ -z "\$FILES" ]; then
+if [ -z "$FILES" ]; then
   echo "    <p>No videos available at this time.</p>" >> "$TMP_HTML"
 else
-  for object in \$FILES; do
-    echo "    <li><a href='/videos/\$object'>\$object</a></li>" >> "$TMP_HTML"
+  for object in $FILES; do
+    echo "    <li><a href='/videos/$object'>$object</a></li>" >> "$TMP_HTML"
   done
 fi
 
