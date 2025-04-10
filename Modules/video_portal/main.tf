@@ -277,44 +277,57 @@ resource "aws_instance" "ftp_s3_sync_server" {
   subnet_id              = aws_subnet.public_subnet.id
   associate_public_ip_address = true
 
-  user_data = <<EOF
+user_data = <<EOF
 #!/bin/bash
 set -ex
 
+# Logging setup
+LOGFILE="/var/log/user-data.log"
+exec > >(tee -a $${LOGFILE}) 2>&1
+
 sudo apt-get update -y
-sudo apt-get install -y awscli ftp cron
+sudo apt-get install -y nginx awscli ec2-instance-connect
 
-mkdir -p /tmp/video_files
+sudo systemctl start nginx
+sudo systemctl enable nginx
+sudo systemctl restart ssh
 
-# Create the FTP-to-S3 sync script
-cat <<SCRIPT_EOF > /tmp/ftp_to_s3_sync.sh
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw --force enable
+
+cat <<'SCRIPT_EOF' > /tmp/update_index.sh
 #!/bin/bash
 set -e
 
-# *** Update these FTP values with your actual FTP server details ***
-FTP_HOST="ftp.example.com"
-FTP_USER="your_ftp_user"
-FTP_PASS="your_ftp_password"
-LOCAL_DIR="/tmp/video_files"
-S3_BUCKET="s3://${aws_s3_bucket.video_bucket.bucket}"
+BUCKET_NAME="${aws_s3_bucket.video_bucket.bucket}"
+WEB_ROOT="/var/www/html"
+TMP_HTML="/tmp/index.html"
 EC2_REGION=$$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
 
-ftp -n $${FTP_HOST} <<END_SCRIPT
-quote USER $${FTP_USER}
-quote PASS $${FTP_PASS}
-mget /path/to/videos/* $${LOCAL_DIR}/
-quit
-END_SCRIPT
+echo "<html><body><h1>${var.client_name} - Video Library</h1><ul>" > $${TMP_HTML}
 
-aws s3 sync $${LOCAL_DIR} $${S3_BUCKET} --acl public-read --region $${EC2_REGION}
-rm -rf $${LOCAL_DIR}
+FILES=$$(aws s3 ls "s3://$${BUCKET_NAME}" --region "$${EC2_REGION}" --recursive | awk '{print $$4}')
+
+if [ -z "$$FILES" ]; then
+  echo "<p>No videos available at this time.</p>" >> $${TMP_HTML}
+else
+  for object in $$FILES; do
+    if [ -n "$$object" ]; then
+      echo "<li><a href='https://$${BUCKET_NAME}.s3.amazonaws.com/$$object'>$$object</a></li>" >> $${TMP_HTML}
+    fi
+  done
+fi
+
+echo "</ul></body></html>" >> $${TMP_HTML}
+sudo mv $${TMP_HTML} $${WEB_ROOT}/index.html
 SCRIPT_EOF
 
-chmod +x /tmp/ftp_to_s3_sync.sh
+chmod +x /tmp/update_index.sh
+/tmp/update_index.sh
 
-# Set up a cron job to run the FTP sync script every 5 minutes
-echo "*/5 * * * * /tmp/ftp_to_s3_sync.sh >> /var/log/ftp_to_s3_sync.log 2>&1" | sudo tee -a /etc/crontab
-sudo service cron restart
+echo "*/5 * * * * /tmp/update_index.sh >> /var/log/update_index_cron.log 2>&1" | sudo tee -a /etc/crontab
 EOF
 
   tags = {
