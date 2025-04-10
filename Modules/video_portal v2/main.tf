@@ -25,7 +25,7 @@ resource "tls_private_key" "new_key" {
 }
 
 resource "random_id" "common_id" {
-  byte_length = 8
+  byte_length = 4
 }
 
 ############################################################
