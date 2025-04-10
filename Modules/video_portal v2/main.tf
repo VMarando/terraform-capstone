@@ -268,7 +268,7 @@ chmod +x /tmp/update_index.sh
 /tmp/update_index.sh
 
 # Schedule the dynamic index update every 5 minutes
-echo "*/5 * * * * /tmp/update_index.sh >> /var/log/update_index_cron.log 2>&1" | sudo tee -a /etc/crontab
+echo "*/5 * * * * root /tmp/update_index.sh >> /var/log/update_index_cron.log 2>&1" | sudo tee -a /etc/crontab
 EOF
 
   tags = {
