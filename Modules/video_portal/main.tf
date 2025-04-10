@@ -11,7 +11,7 @@ terraform {
 }
 
 provider "aws" {
-  # region is implied; either set AWS_REGION env, or define a var here
+  region = var.aws_region
 }
 
 ############################################################
