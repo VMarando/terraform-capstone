@@ -271,20 +271,26 @@ EC2_REGION=$$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
 mkdir -p $${LOCAL_DIR}
 aws s3 sync s3://$${BUCKET_NAME} $${LOCAL_DIR} --region $${EC2_REGION}
 
-# 2) Build an index.html referencing local files
-echo "<html><body><h1>${var.client_name} - Video Library (Private)</h1><ul>" > $${TMP_HTML}
-
-FILES=$$(ls -1 $${LOCAL_DIR})
-if [ -z "$$FILES" ]; then
-  echo "<p>No videos available at this time.</p>" >> $${TMP_HTML}
-else
-  for object in $$FILES; do
-    # for each file, reference /videos/<filename>
-    echo "<li><a href='/videos/$${object}'>$${object}</a></li>" >> $${TMP_HTML}
-  done
-fi
-
-echo "</ul></body></html>" >> $${TMP_HTML}
+cat <<HTML_EOF | sudo tee /var/www/html/index.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>${var.client_name} - Video Library</title>
+</head>
+<body>
+  FILES=$$(ls -1 $${LOCAL_DIR})
+  if [ -z "$$FILES" ]; then
+    echo "<p>No videos available at this time.</p>" >> $${TMP_HTML}
+  else
+    for object in $$FILES; do
+      # for each file, reference /videos/<filename>
+      echo "<li><a href='/videos/$${object}'>$${object}</a></li>" >> $${TMP_HTML}
+    done
+  fi
+</body>
+</html>
+HTML_EOF
 
 mv $${TMP_HTML} /var/www/html/index.html
 SCRIPT_EOF
