@@ -17,3 +17,10 @@ The goal of this project is to automate the deployment of various AWS resources 
 ## **Conclusion**
 
 This project provides a practical solution for **automating cloud infrastructure management** using **Terraform**. It not only streamlines the deployment process but also equips **IT staff** with the skills and tools needed to manage and scale cloud resources effectively. Through modular configurations and training materials, the project empowers businesses to manage their cloud infrastructure more efficiently.
+
+**Troubleshooting** 
+
+EC2 Instance:
+sudo cat /var/log/cloud-init-output.log
+sudo systemctl status nginx
+sudo systemctl status cron
