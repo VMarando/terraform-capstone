@@ -220,8 +220,13 @@ resource "aws_iam_instance_profile" "ec2_profile" {
 # 7. EC2 Instance: Nginx Web Server (Dynamic PRIVATE Setup)
 ############################################################
 resource "aws_instance" "web_server" {
-  # ... other settings like ami, instance_type, etc.
-
+  ami                    = var.ami_id
+  instance_type          = var.instance_type
+  key_name               = aws_key_pair.deployer.key_name
+  vpc_security_group_ids = [aws_security_group.web_sg.id]
+  subnet_id              = aws_subnet.public_subnet.id
+  associate_public_ip_address = true  # ✅ Ensures instance gets a Public IP
+  
   user_data = <<EOF
 #!/bin/bash
 set -ex
