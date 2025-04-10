@@ -245,7 +245,7 @@ cat <<HTML_START > "$TMP_HTML"
   <ul>
 HTML_START
 
-FILES=\`ls -1 "$LOCAL_DIR"`
+FILES=`ls -1 "$LOCAL_DIR"`
 if [ -z "\$FILES" ]; then
   echo "    <p>No videos available at this time.</p>" >> "$TMP_HTML"
 else
