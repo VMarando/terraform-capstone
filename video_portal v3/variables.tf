@@ -39,7 +39,7 @@ variable "video_files" {
 variable "client_name" {
   description = "A header line for the web server's HTML page"
   type        = string
-  default     = "Insert Client Name Here" # Edit Client name on TF web app workspace variables
+  default     = "Insert Client Name Here" # Edit client name on TF web app> workspace variables
 }
 
 variable "ftp_user" {
