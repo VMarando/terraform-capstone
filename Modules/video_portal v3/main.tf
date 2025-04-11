@@ -239,9 +239,14 @@ server {
     ssl_certificate /etc/ssl/certs/nginx-selfsigned.crt;
     ssl_certificate_key /etc/ssl/private/nginx-selfsigned.key;
 
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
+# For the root URL, force serving index.html
+location = / {
+    try_files /index.html =404;
+}
+
+# For all other requests, return 404 if not found
+location / {
+    try_files $uri $uri/ =404;
 }
 NGINX_EOF
 
