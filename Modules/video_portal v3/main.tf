@@ -248,6 +248,7 @@ location = / {
 location / {
     try_files $uri $uri/ =404;
 }
+}
 NGINX_EOF
 
 # Restart Nginx so the new HTTPS configuration takes effect
