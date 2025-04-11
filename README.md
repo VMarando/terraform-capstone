@@ -25,3 +25,4 @@ sudo cat /var/log/cloud-init-output.log
 sudo systemctl status nginx
 sudo systemctl status cron
 ls -l /var/www/html/videos
+Force the corn job: sudo /tmp/update_index.sh
