@@ -122,65 +122,17 @@ resource "aws_security_group" "web_sg" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-}
-
-############################################################
-# 5. S3 Bucket for Video Storage (PRIVATE)
-############################################################
-
-resource "aws_s3_bucket" "video_bucket" {
-  bucket = "video-bucket-${random_id.common_id.hex}"
-  tags = {
-    Name = "Video Bucket-${random_id.common_id.hex}"
+  ingress {
+    from_port   = 2049
+    to_port     = 2049
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.main_vpc.cidr_block]
   }
-}
 
-# (No public ACL or bucket policy, so the bucket remains private)
-
-############################################################
-# 6. IAM Role & Instance Profile (For EC2 -> S3 Access)
-############################################################
-
-resource "aws_iam_role" "ec2_role" {
-  name = "ec2_video_role-${random_id.common_id.hex}"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Action    = "sts:AssumeRole",
-      Effect    = "Allow",
-      Principal = { Service = "ec2.amazonaws.com" }
-    }]
-  })
-}
-
-resource "aws_iam_role_policy" "ec2_s3_policy" {
-  name = "ec2_s3_policy-${random_id.common_id.hex}"
-  role = aws_iam_role.ec2_role.id
-  policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Sid    = "AllowS3ListAndGet",
-      Effect = "Allow",
-      Action = [
-        "s3:ListBucket",
-        "s3:GetObject",
-        "s3:PutObject"  // needed for FTP sync to upload files
-      ],
-      Resource = [
-        aws_s3_bucket.video_bucket.arn,
-        "${aws_s3_bucket.video_bucket.arn}/*"
-      ]
-    }]
-  })
-}
-
-resource "aws_iam_instance_profile" "ec2_profile" {
-  name = "ec2_video_profile-${random_id.common_id.hex}"
-  role = aws_iam_role.ec2_role.name
 }
 
 ############################################################
-# 7. EC2 Instance: Nginx Web Server (Dynamic File Listing)
+# 5. EC2 Instance: Nginx Web Server (Dynamic File Listing)
 ############################################################
 
 resource "aws_instance" "web_server" {
@@ -193,17 +145,17 @@ resource "aws_instance" "web_server" {
   iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
 
   depends_on = [
-    aws_s3_bucket.video_bucket,
-    aws_iam_instance_profile.ec2_profile
+    aws_iam_instance_profile.ec2_profile,
+    aws_efs_file_system.video_efs  # Ensure EFS is created before mounting
   ]
 
   user_data = <<EOF
 #!/bin/bash
 set -ex
 
-# Update and install required packages
+# Update and install required packages, including nfs-common for NFS mounts
 sudo apt-get update -y
-sudo apt-get install -y nginx awscli ec2-instance-connect openssl
+sudo apt-get install -y nginx awscli ec2-instance-connect openssl nfs-common
 
 sudo systemctl start nginx
 sudo systemctl enable nginx
@@ -213,6 +165,7 @@ sudo systemctl restart ssh
 sudo ufw allow 22/tcp
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
+sudo ufw allow 2049/tcp  # Allow NFS
 sudo ufw --force enable
 
 # Generate self-signed certificate for HTTPS
@@ -221,7 +174,7 @@ sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -out /etc/ssl/certs/nginx-selfsigned.crt \
   -subj "/C=US/ST=State/L=City/O=Organization/OU=IT/CN=demo.local"
 
-  # Overwrite the default Nginx configuration with an HTTPS-enabled configuration
+# Overwrite the default Nginx configuration with an HTTPS-enabled configuration
 cat <<'NGINX_EOF' | sudo tee /etc/nginx/sites-available/default
 server {
     listen 80 default_server;
@@ -239,37 +192,36 @@ server {
     ssl_certificate /etc/ssl/certs/nginx-selfsigned.crt;
     ssl_certificate_key /etc/ssl/private/nginx-selfsigned.key;
 
-# For the root URL, force serving index.html
-location = / {
-    try_files /index.html =404;
-}
-
-# For all other requests, return 404 if not found
-location / {
-    try_files $uri $uri/ =404;
-}
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
 }
 NGINX_EOF
 
-# Restart Nginx so the new HTTPS configuration takes effect
+# Restart Nginx to apply the new HTTPS configuration
 sudo systemctl restart nginx
 
-# Create the local directory for videos
-sudo mkdir -p /var/www/html/videos
+# Create the mount point for EFS and mount the EFS file system
+sudo mkdir -p /mnt/efs/videos
 
-# Write out and run a dynamic index generation script
+# Define the EFS DNS name
+EFS_DNS="\${aws_efs_file_system.video_efs.id}.efs.\${var.aws_region}.amazonaws.com"
+sudo mount -t nfs -o nfsvers=4.1 \$EFS_DNS:/ /mnt/efs/videos
+
+# Optionally add the mount to /etc/fstab for persistence
+echo "\$EFS_DNS:/ /mnt/efs/videos nfs defaults 0 0" | sudo tee -a /etc/fstab
+
+# Write out and run a dynamic index generation script using the EFS mount
 cat <<'DYNAMIC_EOF' > /tmp/update_index.sh
 #!/bin/bash
 set -e
 
-LOCAL_DIR="/var/www/html/videos"
+# Use the mounted EFS directory as the source for video files
+LOCAL_DIR="/mnt/efs/videos"
 TMP_HTML="/tmp/index.html"
 
 # Ensure the videos directory exists
 mkdir -p "$LOCAL_DIR"
-
-# Sync contents from the private S3 bucket into the local videos folder
-aws s3 sync s3://${aws_s3_bucket.video_bucket.bucket} "$LOCAL_DIR" --region `curl -s http://169.254.169.254/latest/meta-data/placement/region`
 
 # Begin generating the HTML
 cat <<HTML_START > "$TMP_HTML"
@@ -303,80 +255,39 @@ sudo mv "$TMP_HTML" /var/www/html/index.html
 DYNAMIC_EOF
 
 chmod +x /tmp/update_index.sh
-# Run the script immediately
-/tmp/update_index.sh
+sudo /tmp/update_index.sh
 
 # Schedule the dynamic index update every 5 minutes
 echo "*/5 * * * * root /tmp/update_index.sh >> /var/log/update_index_cron.log 2>&1" | sudo tee -a /etc/crontab
 EOF
 
   tags = {
-    Name        = "Nginx-WebServer-${random_id.common_id.hex}"
+    Name        = "Nginx-WebServer-\${random_id.common_id.hex}"
     Environment = "Production"
     DeployedBy  = "Terraform"
   }
 }
 
 ############################################################
-# 8. AWS Transfer Family SFTP Server (Managed FTP Service)
+# 6. Amazon EFS File System for Video Storage (Managed NAS)
 ############################################################
 
-# IAM Role for Transfer Family
-resource "aws_iam_role" "transfer_role" {
-  name = "transfer_role-${random_id.common_id.hex}"
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [{
-      Action    = "sts:AssumeRole",
-      Effect    = "Allow",
-      Principal = { Service = "transfer.amazonaws.com" }
-    }]
-  })
-}
-
-# IAM Policy for Transfer Family role to access S3 bucket (list, get, put)
-resource "aws_iam_role_policy" "transfer_policy" {
-  name = "transfer_policy-${random_id.common_id.hex}"
-  role = aws_iam_role.transfer_role.id
-  policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [
-      {
-        Sid: "AllowS3Access",
-        Effect: "Allow",
-        Action: [
-          "s3:ListBucket",
-          "s3:GetObject",
-          "s3:PutObject"
-        ],
-        Resource: [
-          aws_s3_bucket.video_bucket.arn,
-          "${aws_s3_bucket.video_bucket.arn}/*"
-        ]
-      }
-    ]
-  })
-}
-
-# Create the AWS Transfer Family Server for SFTP
-resource "aws_transfer_server" "sftp_server" {
-  identity_provider_type = "SERVICE_MANAGED"  # AWS manages identity for this example
-  endpoint_type          = "PUBLIC"
-  protocols              = ["SFTP"]
+# Create an EFS file system for storing video files
+resource "aws_efs_file_system" "video_efs" {
+  creation_token   = "video-efs-${random_id.common_id.hex}"
+  performance_mode = "generalPurpose"
+  encrypted        = false
 
   tags = {
-    Name = "SFTP-Server-${random_id.common_id.hex}"
+    Name = "VideoEFS-${random_id.common_id.hex}"
   }
 }
 
-# Create a Transfer Family User
-resource "aws_transfer_user" "sftp_user" {
-  server_id      = aws_transfer_server.sftp_server.id
-  user_name      = "${var.ftp_user}-${random_id.common_id.hex}"
-  role           = aws_iam_role.transfer_role.arn
-  home_directory = "/${aws_s3_bucket.video_bucket.bucket}"
+# Create a mount target for the EFS in your public subnet(s)
+resource "aws_efs_mount_target" "efs_mount" {
+  for_each = { for subnet in aws_subnet.public_subnet : subnet.id => subnet.id }
   
-  tags = {
-    Name = "SFTP-User-${random_id.common_id.hex}"
-  }
+  file_system_id  = aws_efs_file_system.video_efs.id
+  subnet_id       = each.value
+  security_groups = [aws_security_group.web_sg.id]
 }
