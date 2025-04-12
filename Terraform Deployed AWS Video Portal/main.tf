@@ -208,12 +208,11 @@ sudo systemctl restart nginx
 # Create the mount point for EFS and mount the EFS file system
 sudo mkdir -p /mnt/efs/videos
 
-# Define the EFS DNS name
-EFS_DNS="${aws_efs_file_system.video_efs.id}.efs.${var.aws_region}.amazonaws.com"
-sudo mount -t nfs -o nfsvers=4.1 $EFS_DNS:/ /mnt/efs/videos
+# Mount the EFS file system directly using interpolation
+sudo mount -t nfs -o nfsvers=4.1 ${aws_efs_file_system.video_efs.id}.efs.${var.aws_region}.amazonaws.com:/ /mnt/efs/videos
 
-# Optionally add the mount to /etc/fstab for persistence
-echo "$EFS_DNS:/ /mnt/efs/videos nfs defaults 0 0" | sudo tee -a /etc/fstab
+# Add the mount to /etc/fstab for persistence using direct interpolation
+echo "${aws_efs_file_system.video_efs.id}.efs.${var.aws_region}.amazonaws.com:/ /mnt/efs/videos nfs defaults 0 0" | sudo tee -a /etc/fstab
 
 # Write out and run a dynamic index generation script using the EFS mount
 cat <<'DYNAMIC_EOF' > /tmp/update_index.sh
