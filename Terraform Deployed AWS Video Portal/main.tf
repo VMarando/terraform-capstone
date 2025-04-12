@@ -283,9 +283,7 @@ resource "aws_efs_file_system" "video_efs" {
 
 # Create a mount target for the EFS in your public subnet(s)
 resource "aws_efs_mount_target" "efs_mount" {
-  for_each = { for subnet in aws_subnet.public_subnet : subnet.id => subnet.id }
-  
   file_system_id  = aws_efs_file_system.video_efs.id
-  subnet_id       = each.value
+  subnet_id       = aws_subnet.public_subnet.id
   security_groups = [aws_security_group.web_sg.id]
 }
