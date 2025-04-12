@@ -26,3 +26,4 @@ sudo systemctl status nginx
 sudo systemctl status cron
 ls -l /var/www/html/videos
 Force the cron job: sudo /tmp/update_index.sh
+cat /etc/fstab
