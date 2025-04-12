@@ -50,7 +50,7 @@ resource "local_file" "private_key" {
 
 resource "aws_vpc" "main_vpc" {
   cidr_block = "10.0.0.0/16"
-  
+
   enable_dns_support   = true
   enable_dns_hostnames = true
 
@@ -136,7 +136,29 @@ resource "aws_security_group" "web_sg" {
 }
 
 ############################################################
-# 5. EC2 Instance: Nginx Web Server (Dynamic File Listing)
+# 5. Amazon EFS File System for Video Storage (Managed NAS)
+############################################################
+
+# Create an EFS file system for storing video files
+resource "aws_efs_file_system" "video_efs" {
+  creation_token   = "video-efs-${random_id.common_id.hex}"
+  performance_mode = "generalPurpose"
+  encrypted        = false
+
+  tags = {
+    Name = "VideoEFS-${random_id.common_id.hex}"
+  }
+}
+
+# Create a mount target for the EFS in your public subnet(s)
+resource "aws_efs_mount_target" "efs_mount" {
+  file_system_id  = aws_efs_file_system.video_efs.id
+  subnet_id       = aws_subnet.public_subnet.id
+  security_groups = [aws_security_group.web_sg.id]
+}
+
+############################################################
+# 6. EC2 Instance: Nginx Web Server (Dynamic File Listing)
 ############################################################
 
 resource "aws_instance" "web_server" {
@@ -213,7 +235,7 @@ sudo systemctl restart nginx
 sudo mkdir -p /mnt/efs/videos
 
 # Mount the EFS file system directly using interpolation
-sudo mount -t nfs -o nfsvers=4.1 ${aws_efs_file_system.video_efs.id}.efs.${var.aws_region}.amazonaws.com:/ /mnt/efs/videos
+sudo mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport ${aws_efs_file_system.video_efs.id}.efs.${var.aws_region}.amazonaws.com:/ /mnt/efs/videos
 
 # Add the mount to /etc/fstab for persistence using direct interpolation
 echo "${aws_efs_file_system.video_efs.id}.efs.${var.aws_region}.amazonaws.com:/ /mnt/efs/videos nfs defaults 0 0" | sudo tee -a /etc/fstab
@@ -273,26 +295,4 @@ EOF
     Environment = "Production"
     DeployedBy  = "Terraform"
   }
-}
-
-############################################################
-# 6. Amazon EFS File System for Video Storage (Managed NAS)
-############################################################
-
-# Create an EFS file system for storing video files
-resource "aws_efs_file_system" "video_efs" {
-  creation_token   = "video-efs-${random_id.common_id.hex}"
-  performance_mode = "generalPurpose"
-  encrypted        = false
-
-  tags = {
-    Name = "VideoEFS-${random_id.common_id.hex}"
-  }
-}
-
-# Create a mount target for the EFS in your public subnet(s)
-resource "aws_efs_mount_target" "efs_mount" {
-  file_system_id  = aws_efs_file_system.video_efs.id
-  subnet_id       = aws_subnet.public_subnet.id
-  security_groups = [aws_security_group.web_sg.id]
 }
