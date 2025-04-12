@@ -142,10 +142,8 @@ resource "aws_instance" "web_server" {
   vpc_security_group_ids      = [aws_security_group.web_sg.id]
   subnet_id                   = aws_subnet.public_subnet.id
   associate_public_ip_address = true
-  iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
 
   depends_on = [
-    aws_iam_instance_profile.ec2_profile,
     aws_efs_file_system.video_efs  # Ensure EFS is created before mounting
   ]
 
