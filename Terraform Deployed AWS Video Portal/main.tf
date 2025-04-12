@@ -262,7 +262,7 @@ echo "*/5 * * * * root /tmp/update_index.sh >> /var/log/update_index_cron.log 2>
 EOF
 
   tags = {
-    Name        = "Nginx-WebServer-\${random_id.common_id.hex}"
+    Name        = "Nginx-WebServer-$${random_id.common_id.hex}"
     Environment = "Production"
     DeployedBy  = "Terraform"
   }
