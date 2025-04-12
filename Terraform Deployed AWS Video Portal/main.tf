@@ -190,10 +190,16 @@ server {
     ssl_certificate /etc/ssl/certs/nginx-selfsigned.crt;
     ssl_certificate_key /etc/ssl/private/nginx-selfsigned.key;
 
-    location / {
-        try_files \$uri \$uri/ /index.html;
+    # For the root URL, force serving index.html
+    location = / {
+        try_files /index.html =404;
     }
-}
+
+    # For all other requests, return 404 if not found
+    location / {
+        try_files $uri $uri/ =404;
+    }
+    }
 NGINX_EOF
 
 # Restart Nginx to apply the new HTTPS configuration
@@ -253,14 +259,14 @@ sudo mv "$TMP_HTML" /var/www/html/index.html
 DYNAMIC_EOF
 
 chmod +x /tmp/update_index.sh
-sudo /tmp/update_index.sh
+sudo /tmp/update_index.sh # Run the script immediately
 
-# Schedule the dynamic index update every 5 minutes
-echo "*/5 * * * * root /tmp/update_index.sh >> /var/log/update_index_cron.log 2>&1" | sudo tee -a /etc/crontab
+# Schedule the dynamic index update every 2 minutes
+echo "*/2 * * * * root /tmp/update_index.sh >> /var/log/update_index_cron.log 2>&1" | sudo tee -a /etc/crontab
 EOF
 
   tags = {
-    Name        = "Nginx-WebServer-$${random_id.common_id.hex}"
+    Name        = "Nginx-WebServer-${random_id.common_id.hex}"
     Environment = "Production"
     DeployedBy  = "Terraform"
   }
