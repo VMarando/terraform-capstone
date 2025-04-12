@@ -27,3 +27,5 @@ sudo systemctl status cron
 ls -l /var/www/html/videos
 Force the cron job: sudo /tmp/update_index.sh
 cat /etc/fstab
+mount | grep /mnt/efs/videos
+ls -l /mnt/efs/videos
