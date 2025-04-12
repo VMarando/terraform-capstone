@@ -170,7 +170,9 @@ resource "aws_instance" "web_server" {
   associate_public_ip_address = true
 
   depends_on = [
-    aws_efs_file_system.video_efs  # Ensure EFS is created before mounting
+    aws_efs_file_system.video_efs  # Ensure EFS is created
+    aws_efs_mount_target.efs_mount # Ensure EFS mount target is created before mounting
+
   ]
 
   user_data = <<EOF
