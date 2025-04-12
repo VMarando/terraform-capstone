@@ -234,17 +234,8 @@ sudo systemctl restart nginx
 # Create the mount point for EFS and mount the EFS file system
 sudo mkdir -p /mnt/efs/videos
 
-# Give the EFS mount target some time to initialize
-sleep 30
-
-# Attempt to mount the EFS share, retrying up to 5 times
-for i in {1..5}; do
-    echo "Mount attempt $i ..."
-    sudo mount -t nfs -o nfsvers=4.1 \
-        ${aws_efs_file_system.video_efs.id}.efs.${var.aws_region}.amazonaws.com:/ /mnt/efs/videos \
-    && break || (echo "Mount attempt $i failed, retrying in 10 seconds..." && sleep 10)
-done
-
+# Mount the EFS file system directly using interpolation
+sudo mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2,noresvport ${aws_efs_file_system.video_efs.id}.efs.${var.aws_region}.amazonaws.com:/ /mnt/efs/videos
 
 # Add the mount to /etc/fstab for persistence using direct interpolation
 echo "${aws_efs_file_system.video_efs.id}.efs.${var.aws_region}.amazonaws.com:/ /mnt/efs/videos nfs defaults 0 0" | sudo tee -a /etc/fstab
