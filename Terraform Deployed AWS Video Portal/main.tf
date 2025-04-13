@@ -130,7 +130,7 @@ resource "aws_security_group" "web_sg" {
     from_port   = 2049
     to_port     = 2049
     protocol    = "tcp"
-    cidr_blocks = [aws_vpc.main_vpc.cidr_block]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
 }
